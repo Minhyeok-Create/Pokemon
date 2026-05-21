@@ -1,0 +1,8 @@
+pokemon-backend/.gradle/
+pokemon-backend/build/
+pokemon-backend/out/
+pokemon-backend/.idea/
+pokemon-backend/*.iml
+pokemon-backend/h2db/
+.DS_Store
+Thumbs.db

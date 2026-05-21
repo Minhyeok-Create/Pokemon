@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>웹 프로젝트</title>
+    <style>
+        body {
+            background-color: #222;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;           
+        }
+        canvas {
+            border: 4px solid #fff;
+            background-color: #7cfc00;
+            /* 💡 로그인 성공 전까지는 캔버스를 화면에서 숨깁니다. */
+            display: none; 
+            border-radius: 8px;
+        }
+        #game-desc {
+            /* 💡 설명 글자도 로그인 전에는 숨깁니다. */
+            display: none;
+            margin: 10px 0 5px 0;
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        /* 🔑 로그인 / 회원가입 스타일 */
+        #auth-container {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(34, 34, 34, 0.95); /* 배경과 어우러지는 어두운 톤 */
+            display: flex; justify-content: center; align-items: center;
+            z-index: 9999;
+        }
+        .auth-box {
+            background: #333; padding: 30px; border-radius: 12px;
+            border: 2px solid #fff; text-align: center; width: 300px;
+            box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
+        }
+        .auth-box h2 { margin-top: 0; margin-bottom: 20px; color: #ffcb05; }
+        .input-group input {
+            width: 100%; padding: 12px; margin-bottom: 15px;
+            border: 1px solid #555; border-radius: 6px; box-sizing: border-box;
+            background-color: #222; color: white; font-size: 14px;
+        }
+        .input-group input:focus { border-color: #ffcb05; outline: none; }
+        .button-group { display: flex; gap: 10px; }
+        .button-group button {
+            flex: 1; padding: 12px; border: none; border-radius: 6px;
+            cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.2s;
+        }
+        .btn-login { background-color: #ffcb05; color: #1d2c5e; }
+        .btn-login:hover { background-color: #e5b704; }
+        .btn-signup { background-color: #555; color: white; }
+        .btn-signup:hover { background-color: #666; }
+
+        /* 💬 채팅 컨테이너 스타일 보정 */
+        #chat-container {
+            display: none; 
+            width: 408px; /* 캔버스 border(4px * 2 = 8px)를 고려해 가로폭 일치 */
+            margin-top: 5px;
+        }
+        #chat-box {
+            height: 120px; 
+            background: #333; 
+            border: 2px solid #fff; 
+            overflow-y: auto; 
+            padding: 10px; 
+            font-size: 13px; 
+            text-align: left; 
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+        #chat-input {
+            width: 100%; 
+            padding: 10px; 
+            margin-top: 5px; 
+            background: #222; 
+            color: white; 
+            border: 2px solid #fff; 
+            border-radius: 6px; 
+            box-sizing: border-box;
+        }
+        #chat-input:focus {
+            border-color: #ffcb05;
+            outline: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 🔑 로그인 / 회원가입 모달 창 -->
+    <div id="auth-container">
+        <div class="auth-box">
+            <h2>포켓몬 온라인</h2>
+            <div class="input-group">
+                <input type="text" id="username" placeholder="트레이너 아이디 입력" autocomplete="off" />
+            </div>
+            <div class="input-group">
+                <input type="password" id="password" placeholder="비밀번호 입력" />
+            </div>
+            <div class="button-group">
+                <button onclick="requestLogin()" class="btn-login">로그인</button>
+                <button onclick="requestSignup()" class="btn-signup">회원가입</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🎮 게임 월드 및 채팅 화면 영역 -->
+    <canvas id="myCanvas" width="400" height="300"></canvas>
+    <p id="game-desc">방향키: 이동 제어 / Enter: 채팅 입력</p>
+    
+    <div id="chat-container">
+        <div id="chat-box">
+            <!-- 채팅 메시지들이 여기에 실시간으로 쌓입니다 -->
+        </div>
+        <input type="text" id="chat-input" placeholder="메시지를 입력하고 엔터를 누르세요..." autocomplete="off" />
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
