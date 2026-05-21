@@ -22,7 +22,7 @@ const SPEED = 8;
 const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const SERVER_URL = isLocalhost
     ? 'ws://localhost:8080/game'
-    : 'wss://pokemon-backend-xxxx.onrender.com/game'; // 👈 나중에 렌더 배포 후 생성되는 'onrender.com' 주소로 여기만 바꿔주면 됩니다!
+    : 'https://pokemon-backend-o9nh.onrender.com/game'; // 👈 나중에 렌더 배포 후 생성되는 'onrender.com' 주소로 여기만 바꿔주면 됩니다!
 
 const socket = new WebSocket(SERVER_URL);
 
