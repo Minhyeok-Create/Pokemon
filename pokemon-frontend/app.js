@@ -10,14 +10,14 @@ const MAPS = {
     town: [
         [0, 0, 0, 1, 1],
         [1, 1, 0, 1, 0],
-        [2, 2, 0, 0, 0], // 👈 2번 풀숲 심기
-        [2, 1, 1, 1, 0], // 👈 2번 풀숲 심기
+        [2, 2, 0, 0, 0], 
+        [2, 1, 1, 1, 0], 
         [0, 0, 0, 1, 0]
     ],
     field: [
         [0, 0, 0, 0, 0],
-        [0, 1, 1, 1, 2], // 👈 우측 끝 풀숲 구역
-        [0, 0, 0, 2, 2], // 👈 2번 풀숲 심기
+        [0, 1, 1, 1, 2], 
+        [0, 0, 0, 2, 2], 
         [0, 1, 0, 1, 0],
         [1, 1, 0, 1, 1]
     ]
@@ -86,12 +86,14 @@ class NetworkManager {
         else if (data.type === 'CHAT_MESSAGE') {
             this.game.appendChatMessage(data.id, data.msg);
         }
-        // 🌾 [추가] 백엔드가 주사위 던져서 포켓몬 조우 신호 보냈을 때 경보 시스템 가동
         else if (data.type === 'WILD_ENCOUNTER') {
             this.game.enterBattle(data);
         }
         else if (data.type === 'BAG_RESULT') {
             this.game.updateBagUI(data.list);
+        }
+        else if (data.type === 'BATTLE_ROUND_RESULT') {
+            this.game.handleBattleRound(data);
         }
     }
 
@@ -127,17 +129,14 @@ class GameRenderer {
         // 2. 타일 렌더링 루프
         for (let r = 0; r < 5; r++) {
             for (let c = 0; c < 5; c++) {
-                // 🧱 갈색 벽 타일
                 if (currentMap[r][c] === 1) {
                     this.ctx.fillStyle = '#8b4513';
                     this.ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                 }
-                // 🌾 [추가] 진초록색 풀숲 타일 (포켓몬 출몰 구역 비주얼 가이드)
                 else if (currentMap[r][c] === 2) {
-                    this.ctx.fillStyle = '#228b22'; // Forest Green 색상
+                    this.ctx.fillStyle = '#228b22'; 
                     this.ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
                     
-                    // 수풀 무늬 디테일 실선 주기 (옵션)
                     this.ctx.strokeStyle = '#006400';
                     this.ctx.lineWidth = 2;
                     this.ctx.strokeRect(c * TILE_SIZE + 10, r * TILE_SIZE + 10, TILE_SIZE - 20, TILE_SIZE - 20);
@@ -200,7 +199,7 @@ class GameRenderer {
 }
 
 // ==========================================
-// 4. INPUT HANDLER CLASS (키보드 및 이벤트 통제 전담)
+// 4. INPUT HANDLER CLASS (버그 완벽 수정본)
 // ==========================================
 class InputHandler {
     constructor(game) {
@@ -210,8 +209,84 @@ class InputHandler {
     }
 
     initEvents() {
+        // ⌨️ [PC] 키보드 화살표 감지 리스너
         window.addEventListener('keydown', (e) => this.handleKeyDown(e));
+        
+        // 💬 채팅창 내부 키보드 감지 리스너
         this.chatInput.addEventListener('keydown', (e) => this.handleChatKeyDown(e));
+
+        // 📱 [모바일 꾹 누르기 연속 이동 엔진 시스템]
+        // 특정 방향 버튼을 꾹 누르고 있으면 0.12초마다 자동으로 handleKeyDown을 연사합니다.
+        const bindContinuousTouch = (btnId, keyName) => {
+            const btn = document.getElementById(btnId);
+            if (!btn) return;
+
+            let moveTimer = null; // 연속 이동을 제어할 개별이동이 타이머 주머니
+
+            // 1. 손가락으로 버튼을 대는 순간 (꾹 누르기 시작)
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // 롱터치 시 모바일 브라우저 돋보기/메뉴 팝업 차단
+                
+                // 터치하자마자 일단 즉시 한 칸 움직이고
+                this.handleKeyDown({ key: keyName });
+
+                // 그 뒤로 손을 떼기 전까지 120밀리초(0.12초)마다 무한 연사 루프 기동
+                if (moveTimer === null) {
+                    moveTimer = setInterval(() => {
+                        this.handleKeyDown({ key: keyName });
+                    }, 120); 
+                }
+            });
+
+            // 2. 손가락을 버튼에서 떼는 순간 (이동 정지)
+            btn.addEventListener('touchend', (e) => {
+                if (moveTimer !== null) {
+                    clearInterval(moveTimer); // 연사 주사기 타이머 폭파
+                    moveTimer = null;
+                }
+            });
+
+            // 3. PC 브라우저 마우스 클릭으로 테스트할 때도 똑같이 꾹 누르기가 작동하도록 가드 이식
+            btn.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                this.handleKeyDown({ key: keyName });
+
+                if (moveTimer === null) {
+                    moveTimer = setInterval(() => {
+                        this.handleKeyDown({ key: keyName });
+                    }, 120);
+                }
+                window.focus();
+            });
+
+            // 마우스를 떼거나, 버튼 바깥으로 마우스가 탈출했을 때 타이머 청소
+            const stopMouse = () => {
+                if (moveTimer !== null) {
+                    clearInterval(moveTimer);
+                    moveTimer = null;
+                }
+            };
+            btn.addEventListener('mouseup', stopMouse);
+            btn.addEventListener('mouseleave', stopMouse);
+        };
+
+        // 새로운 연속 터치 엔진에 스마트폰 D-Pad 버튼들 도킹 완료
+        bindContinuousTouch('btn-up', 'ArrowUp');
+        bindContinuousTouch('btn-down', 'ArrowDown');
+        bindContinuousTouch('btn-left', 'ArrowLeft');
+        bindContinuousTouch('btn-right', 'ArrowRight');
+    }
+
+    sendChatMessage() {
+        const msg = this.chatInput.value.trim();
+        if (msg === '') return;
+
+        this.game.network.send({
+            type: "CHAT",
+            msg: msg
+        });
+        
+        this.chatInput.value = ''; 
     }
 
     handleKeyDown(e) {
@@ -223,10 +298,12 @@ class InputHandler {
         let sendMapName = this.game.currentMapName;
         let moved = false;
 
-        if (e.key === 'ArrowUp')    { targetY -= SPEED; moved = true; }
-        if (e.key === 'ArrowDown')  { targetY += SPEED; moved = true; }
-        if (e.key === 'ArrowLeft')  { targetX -= SPEED; moved = true; }
-        if (e.key === 'ArrowRight') { targetX += SPEED; moved = true; }
+        // 🛠️ [버그 교정 3]: 대소문자 브라우저 연산 오차 방지를 위해 엄격 모드로 완전 통일 처리
+        const key = e.key;
+        if (key === 'ArrowUp' || key === 'up')       { targetY -= SPEED; moved = true; }
+        if (key === 'ArrowDown' || key === 'down')   { targetY += SPEED; moved = true; }
+        if (key === 'ArrowLeft' || key === 'left')   { targetX -= SPEED; moved = true; }
+        if (key === 'ArrowRight' || key === 'right') { targetX += SPEED; moved = true; }
 
         if (moved) {
             const canvas = this.game.renderer.canvas;
@@ -257,11 +334,7 @@ class InputHandler {
 
     handleChatKeyDown(e) {
         if (e.key === 'Enter') {
-            const msg = this.chatInput.value.trim();
-            if (msg !== '') {
-                this.game.network.send({ type: "CHAT", msg: msg });
-                this.chatInput.value = '';
-            }
+            this.sendChatMessage(); 
         }
         e.stopPropagation(); 
     }
@@ -286,11 +359,6 @@ class PokemonGame {
         document.getElementById('auth-container').style.display = 'none';
         document.getElementById('myCanvas').style.display = 'block';
         document.getElementById('game-desc').style.display = 'block';
-        document.getElementById('chat-container').style.display = 'block';
-        document.getElementById('auth-container').style.display = 'none';
-        document.getElementById('myCanvas').style.display = 'block';
-        document.getElementById('game-desc').style.display = 'block';
-        document.getElementById('chat-container').style.display = 'block';
         document.getElementById('bag-container').style.display = 'block';
         this.isLoaded = true;
         this.loop();
@@ -323,27 +391,25 @@ class PokemonGame {
             }, 4000);
         }
     }
-    enterBattle(data) {
-        this.gameState = 'BATTLE'; // 락 걸기
 
-        // 1. 적 정보 세팅
+    enterBattle(data) {
+        this.gameState = 'BATTLE'; 
+
         document.getElementById('enemy-name').innerText = `야생의 ${data.pokemonName}`;
         document.getElementById('enemy-level').innerText = `Lv.${data.level}`;
         document.getElementById('enemy-hp-text').innerText = `HP: ${data.hp}/${data.maxHp}`;
         document.getElementById('enemy-hp-bar').style.width = "100%";
+        document.getElementById('enemy-hp-bar').style.backgroundColor = "#00ff00";
 
-        // 2. 내 정보 세팅 (가방 데이터 기반 연동, 일단 껍데기 세팅)
         document.getElementById('battle-log').innerText = `앗! 풀숲에서 야생의 [${data.pokemonName}](이)가 튀어나왔다! \n무엇을 할까?`;
-
-        // 3. UI 스위칭 (필드 숨기고 배틀 레이어 켜기)
         document.getElementById('battle-container').style.display = 'flex';
     }
 
-    // 🏃‍♂️ 배틀 종료 후 필드로 다시 평화롭게 돌려보내는 함수
     exitBattle() {
-        this.gameState = 'FIELD'; // 락 해제
+        this.gameState = 'FIELD'; 
         document.getElementById('battle-container').style.display = 'none';
     }
+
     updateBagUI(pokemonList) {
         const bagListDiv = document.getElementById('bag-list');
         if (pokemonList.length === 0) {
@@ -360,7 +426,45 @@ class PokemonGame {
         });
         bagListDiv.innerHTML = htmlContent;
     }
-    
+
+    handleBattleRound(data) {
+        document.getElementById('battle-log').innerText = data.log;
+
+        if (data.enemyHp !== undefined) {
+            const hpBar = document.getElementById('enemy-hp-bar');
+            const hpText = document.getElementById('enemy-hp-text');
+            const currentMax = parseInt(hpText.innerText.split('/')[1]);
+            const ratio = (data.enemyHp / currentMax) * 100;
+            
+            hpBar.style.width = `${ratio}%`;
+            hpText.innerText = `HP: ${data.enemyHp}/${currentMax}`;
+            hpBar.style.backgroundColor = ratio < 30 ? "#ff5353" : "#00ff00"; 
+        }
+
+        if (data.myPokemonHp !== undefined && data.myPokemonMaxHp !== undefined) {
+            const myHpBar = document.getElementById('my-pokemon-hp-bar');
+            const myHpText = document.getElementById('my-pokemon-hp-text');
+            const myRatio = (data.myPokemonHp / data.myPokemonMaxHp) * 100;
+
+            myHpBar.style.width = `${myRatio}%`;
+            myHpText.innerText = `HP: ${data.myPokemonHp}/${data.myPokemonMaxHp}`;
+            
+            if (myRatio < 30) {
+                myHpBar.style.backgroundColor = "#ff5353"; 
+            } else if (myRatio < 60) {
+                myHpBar.style.backgroundColor = "#ffcb05"; 
+            } else {
+                myHpBar.style.backgroundColor = "#00ff00"; 
+            }
+        }
+
+        if (data.battleEnded) {
+            setTimeout(() => {
+                this.exitBattle();
+                if (typeof requestMyBag === 'function') requestMyBag();
+            }, 2500);
+        }
+    }
 }
 
 // ==========================================
@@ -381,16 +485,24 @@ function requestLogin() {
     if (!u || !p) return alert('아이디와 비밀번호를 모두 입력해주세요!');
     gameInstance.network.send({ type: "LOGIN", username: u, password: p });
 }
+
 function requestMyBag() {
     gameInstance.network.send({ type: "GET_BAG" });
 }
+
 function clickAttack() {
-    document.getElementById('battle-log').innerText = "💥 피카츄의 백만볼트 공격! (아직 계산 로직 개발 중)";
+    gameInstance.network.send({ type: "BATTLE_ATTACK" });
 }
+
+// 🛠️ [버그 교정 4]: 기존 오타가 있던 clickCatch() 함수 명칭 싱크 보정
 function clickCatch() {
-    document.getElementById('battle-log').innerText = "🔴 몬스터볼을 던졌다! (아직 계산 로직 개발 중)";
+    gameInstance.network.send({ type: "BATTLE_CATCH" });
 }
+
 function clickRunaway() {
-    // 4단계를 만들기 전 가동 테스트를 위해 도망치기를 누르면 필드로 나가게 임시 연동합니다.
-    gameInstance.exitBattle();
+    gameInstance.network.send({ type: "BATTLE_RUN" });
+}
+
+function clickSendChat() {
+    gameInstance.input.sendChatMessage();
 }

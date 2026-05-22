@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>포켓몬 온라인 프로젝트</title>
     <style>
         body {
@@ -10,23 +11,39 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             font-family: sans-serif;
             margin: 0;
-            padding: 0;           
+            padding: 10px;
+            box-sizing: border-box;
+            overflow-x: hidden;
         }
+        
+        /* 📦 전체 게임 컴포넌트들을 묶어주는 메인 컨테이너 */
+        #game-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 420px;
+        }
+
         canvas {
             border: 4px solid #fff;
-            /* 🎨 고정 배경색을 삭제하여 자바스크립트가 실시간으로 변경하는 맵 색상(연두색/사막색)이 그대로 투영되게 합니다. */
             display: none; 
             border-radius: 8px;
+            width: 100%; /* 📱 모바일 크기에 맞춰 유연하게 반응 */
+            max-width: 400px;
+            height: auto;
+            box-sizing: border-box;
         }
+        
         #game-desc {
             display: none;
-            margin: 10px 0 5px 0;
-            font-size: 14px;
+            margin: 8px 0;
+            font-size: 13px;
             color: #aaa;
+            text-align: center;
         }
 
         /* 🔑 로그인 / 회원가입 스타일 */
@@ -39,56 +56,78 @@
         }
         .auth-box {
             background: #333; padding: 30px; border-radius: 12px;
-            border: 2px solid #fff; text-align: center; width: 300px;
-            box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
+            border: 2px solid #fff; text-align: center; width: 280px;
         }
         .auth-box h2 { margin-top: 0; margin-bottom: 20px; color: #ffcb05; }
         .input-group input {
             width: 100%; padding: 12px; margin-bottom: 15px;
             border: 1px solid #555; border-radius: 6px; box-sizing: border-box;
-            background-color: #222; color: white; font-size: 14px;
+            background-color: #222; color: white;
         }
-        .input-group input:focus { border-color: #ffcb05; outline: none; }
         .button-group { display: flex; gap: 10px; }
         .button-group button {
             flex: 1; padding: 12px; border: none; border-radius: 6px;
-            cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.2s;
+            cursor: pointer; font-weight: bold;
         }
         .btn-login { background-color: #ffcb05; color: #1d2c5e; }
-        .btn-login:hover { background-color: #e5b704; }
         .btn-signup { background-color: #555; color: white; }
-        .btn-signup:hover { background-color: #666; }
 
-        /* 💬 채팅 컨테이너 스타일 보정 */
-        #chat-container {
-            display: none; 
-            width: 408px;
+        /* 💬 PC 기본 하단 레이아웃 상자 */
+        #chat-container, #bag-container {
+            width: 100%;
+            max-width: 400px;
             margin-top: 5px;
+            box-sizing: border-box;
         }
+        
         #chat-box {
-            height: 120px; 
+            height: 100px; 
             background: #333; 
             border: 2px solid #fff; 
             overflow-y: auto; 
-            padding: 10px; 
+            padding: 8px; 
             font-size: 13px; 
-            text-align: left; 
             border-radius: 6px;
-            box-sizing: border-box;
         }
-        #chat-input {
-            width: 100%; 
-            padding: 10px; 
-            margin-top: 5px; 
-            background: #222; 
-            color: white; 
-            border: 2px solid #fff; 
-            border-radius: 6px; 
-            box-sizing: border-box;
-        }
-        #chat-input:focus {
-            border-color: #ffcb05;
-            outline: none;
+
+        /* 📱 모바일/대형축소 화면 전용 흑마법 CSS Grid 작동 공간 */
+        @media (max-width: 768px) {
+            #game-wrapper {
+                max-width: 100%;
+            }
+            
+            /* 🧭 하단 조작 구역을 좌우 반반 스플릿 구조로 변환 */
+            .mobile-split-panel {
+                display: grid !important;
+                grid-template-columns: 140px 1fr; /* 좌측 조이스틱 존 고정, 우측은 가방/채팅 프리존 */
+                gap: 10px;
+                width: 100%;
+                max-width: 400px;
+                margin-top: 8px;
+                align-items: center;
+            }
+
+            #mobile-joystick {
+                display: block !important; /* 가상패드 켜기 */
+                margin: 0 !important;
+            }
+
+            #chat-container, #bag-container {
+                max-width: 100%;
+                margin-top: 0 =important;
+            }
+            
+            #chat-box {
+                height: 70px; /* 세로 압축을 위해 채팅창 높이 소폭 제한 */
+                font-size: 11px;
+            }
+            
+            #bag-list {
+                max-height: 60px !important;
+                font-size: 11px;
+            }
+            
+            #game-desc { display: none !important; } /* 공간 절약을 위해 설명 생략 */
         }
     </style>
 </head>
@@ -111,69 +150,83 @@
         </div>
     </div>
 
-    <!-- 🎮 게임 월드 및 채팅 화면 영역 -->
-    <!-- 🧱 [버그 픽스]: 타일 크기 싱크를 맞추기 위해 height를 300에서 400으로 교정했습니다! -->
-    <canvas id="myCanvas" width="400" height="400"></canvas>
-    <p id="game-desc">방향키: 이동 제어 / Enter: 채팅 입력</p>
-    
-    <div id="chat-container">
-        <div id="chat-box">
-            <!-- 채팅 메시지들이 여기에 실시간으로 쌓입니다 -->
-        </div>
-        <input type="text" id="chat-input" placeholder="메시지를 입력하고 엔터를 누르세요..." autocomplete="off" />
-    </div>
-    <div id="bag-container" style="display:none; width:408px; margin-top:10px; text-align:center;">
-        <button onclick="requestMyBag()" style="width:100%; padding:10px; font-weight:bold; background-color:#ffcb05; border:2px solid #fff; border-radius:6px; cursor:pointer;">🎒 내 포켓몬 가방 확인하기</button>
-        <div id="bag-list" style="margin-top:5px; background:#333; border:2px solid #fff; border-radius:6px; padding:10px; font-size:13px; text-align:left; max-height:100px; overflow-y:auto; color:#fff;">
-            버튼을 누르면 소지한 포켓몬 목록이 출력됩니다.
-        </div>
-    </div>
-    <!-- ⚔️ 1대1 턴제 배틀 전용 컨테이너 UI (기본 숨김) -->
-    <div id="battle-container" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; color: white; flex-direction: column; align-items: center; justify-content: center; z-index: 10000; font-family: sans-serif;">
-        <div style="width: 380px; background: #222; border: 4px solid #ffcb05; border-radius: 12px; padding: 20px; box-shadow: 0 0 20px rgba(255, 203, 5, 0.3);">
+    <!-- 📦 게임 종합 가동 구역 래퍼 생성 -->
+    <div id="game-wrapper">
+        
+        <!-- 🎮 게임 스크린 캔버스 -->
+        <canvas id="myCanvas" width="400" height="400"></canvas>
+        <p id="game-desc">방향키: 이동 제어 / Enter: 채팅 입력</p>
+        
+        <!-- 🧭 [그리드 샌드박스]: 모바일 크기 시 이 내부의 컴포넌트들이 좌우로 재배치됩니다. -->
+        <div class="mobile-split-panel" style="display: block; width: 100%;">
             
-            <h2 style="text-align: center; color: #ffcb05; margin-top: 0; font-size: 20px; border-bottom: 2px solid #555; padding-bottom: 10px;">⚔️ BATTLE MODE ⚔️</h2>
-            
-            <!-- 🦖 적 야생 포켓몬 정보창 -->
-            <div style="background: #333; padding: 10px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #777;">
-                <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;">
-                    <span id="enemy-name" style="color: #ff5353;">야생의 구구</span>
-                    <span id="enemy-level">Lv.4</span>
+            <!-- 🕹️ 왼쪽 배치 대상: 모바일 전용 십자 패드 (크기를 130px로 축소하여 세로 부하를 완벽 차단) -->
+            <div id="mobile-joystick" style="display: none; position: relative; width: 130px; height: 130px; background: #333; border-radius: 50%; border: 3px solid #ffcb05; box-shadow: 0 4px 10px rgba(0,0,0,0.4); box-sizing: border-box;">
+                <div style="position: absolute; top: 44px; left: 44px; width: 36px; height: 36px; background: #222; border-radius: 50%; border: 2px solid #555; z-index: 5;"></div>
+                <button id="btn-up" style="position: absolute; top: 3px; left: 41px; width: 42px; height: 38px; font-weight: bold; font-size: 15px; background: #555; color: white; border: 1px solid #fff; border-radius: 6px; cursor: pointer; touch-action: manipulation; z-index: 10;">▲</button>
+                <button id="btn-left" style="position: absolute; top: 41px; left: 3px; width: 38px; height: 42px; font-weight: bold; font-size: 15px; background: #555; color: white; border: 1px solid #fff; border-radius: 6px; cursor: pointer; touch-action: manipulation; z-index: 10;">◀</button>
+                <button id="btn-right" style="position: absolute; top: 41px; right: 3px; width: 38px; height: 42px; font-weight: bold; font-size: 15px; background: #555; color: white; border: 1px solid #fff; border-radius: 6px; cursor: pointer; touch-action: manipulation; z-index: 10;">▶</button>
+                <button id="btn-down" style="position: absolute; bottom: 3px; left: 41px; width: 42px; height: 38px; font-weight: bold; font-size: 15px; background: #555; color: white; border: 1px solid #fff; border-radius: 6px; cursor: pointer; touch-action: manipulation; z-index: 10;">▼</button>
+            </div>
+
+            <!-- 우측 배치 대상 묶음: 채팅 및 가방 주머니 -->
+            <div style="display: flex; flex-direction: column; width: 100%; gap: 5px;">
+                <!-- 💬 채팅 컨트롤러 -->
+                <div id="chat-container">
+                    <div id="chat-box"></div>
+                    <div style="display: flex; gap: 4px; margin-top: 4px; width: 100%;">
+                        <input type="text" id="chat-input" placeholder="채팅 입력..." autocomplete="off" style="flex: 1; padding: 8px; background: #222; color: white; border: 2px solid #fff; border-radius: 6px; box-sizing: border-box; font-size: 12px;" />
+                        <button onclick="clickSendChat()" style="width: 50px; font-weight: bold; font-size: 12px; background-color: #ffcb05; color: #1d2c5e; border: 2px solid #fff; border-radius: 6px; cursor: pointer; touch-action: manipulation;">전송</button>
+                    </div>
                 </div>
-                <div style="width: 100%; background: #555; height: 12px; border-radius: 6px; margin-top: 5px; overflow: hidden; border: 1px solid #000;">
+
+                <!-- 🎒 인벤토리 가방 제어소 -->
+                <div id="bag-container" style="display:none; text-align:center;">
+                    <button onclick="requestMyBag()" style="width:100%; padding:6px; font-weight:bold; font-size:12px; background-color:#ffcb05; border:2px solid #fff; border-radius:6px; cursor:pointer;">🎒 가방 확인</button>
+                    <div id="bag-list" style="margin-top:3px; background:#333; border: 2px solid #fff; border-radius:6px; padding:6px; font-size:12px; text-align:left; max-height:80px; overflow-y:auto; color:#fff;">
+                        버튼을 누르면 목록이 출력됩니다.
+                    </div>
+                </div>
+            </div>
+
+        </div> <!-- mobile-split-panel 끝 -->
+    </div> <!-- game-wrapper 끝 -->
+
+    <!-- ⚔️ 1대1 턴제 배틀 전용 컨테이너 UI (기본 숨김) -->
+    <div id="battle-container" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; color: white; flex-direction: column; align-items: center; justify-content: center; z-index: 10000; font-family: sans-serif; padding: 10px; box-sizing: border-box;">
+        <div style="width: 100%; max-width: 360px; background: #222; border: 4px solid #ffcb05; border-radius: 12px; padding: 15px; box-shadow: 0 0 20px rgba(255, 203, 5, 0.3); box-sizing: border-box;">
+            <h2 style="text-align: center; color: #ffcb05; margin-top: 0; font-size: 18px; border-bottom: 2px solid #555; padding-bottom: 8px;">⚔️ BATTLE MODE ⚔️</h2>
+            <div style="background: #333; padding: 8px; border-radius: 6px; margin-bottom: 10px; border: 1px solid #777;">
+                <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 13px;">
+                    <span id="enemy-name" style="color: #ff5353;">야생의 몬스터</span>
+                    <span id="enemy-level">Lv.0</span>
+                </div>
+                <div style="width: 100%; background: #555; height: 10px; border-radius: 5px; margin-top: 4px; overflow: hidden; border: 1px solid #000;">
                     <div id="enemy-hp-bar" style="width: 100%; background: #00ff00; height: 100%; transition: width 0.3s;"></div>
                 </div>
-                <div style="text-align: right; font-size: 11px; color: #aaa; margin-top: 2px;" id="enemy-hp-text">HP: 15/15</div>
+                <div style="text-align: right; font-size: 11px; color: #aaa; margin-top: 2px;" id="enemy-hp-text">HP: 0/0</div>
             </div>
-
-            <!-- ⚡ 대치 중 텍스트 연출 로그 -->
-            <div id="battle-log" style="height: 60px; background: #000; border-radius: 6px; padding: 8px; font-size: 13px; color: #5ce6e6; overflow-y: auto; margin-bottom: 15px; border: 1px solid #444; line-height: 1.4;">
-                앗! 야생 포켓몬과 마주쳤다!
+            <div id="battle-log" style="height: 55px; background: #000; border-radius: 6px; padding: 6px; font-size: 12px; color: #5ce6e6; overflow-y: auto; margin-bottom: 10px; border: 1px solid #444; line-height: 1.3; white-space: pre-line;">
+                전투 개시!
             </div>
-
-            <!-- 🐹 내 출전 포켓몬 정보창 (가방의 1번 피카츄 고정) -->
-            <div style="background: #333; padding: 10px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #777;">
-                <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;">
+            <div style="background: #333; padding: 8px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #777;">
+                <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 13px;">
                     <span style="color: #ffcb05;">나의 피카츄</span>
                     <span id="my-pokemon-level">Lv.5</span>
                 </div>
-                <div style="width: 100%; background: #555; height: 12px; border-radius: 6px; margin-top: 5px; overflow: hidden; border: 1px solid #000;">
+                <div style="width: 100%; background: #555; height: 10px; border-radius: 5px; margin-top: 4px; overflow: hidden; border: 1px solid #000;">
                     <div id="my-pokemon-hp-bar" style="width: 100%; background: #00ff00; height: 100%; transition: width 0.3s;"></div>
                 </div>
                 <div style="text-align: right; font-size: 11px; color: #aaa; margin-top: 2px;" id="my-pokemon-hp-text">HP: 20/20</div>
             </div>
-
-            <!-- 🕹️ 전투 커맨드 버튼 그룹 -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <button onclick="clickAttack()" style="padding: 12px; font-weight: bold; background: #ff5353; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">💥 공격하기</button>
-                <button onclick="clickCatch()" style="padding: 12px; font-weight: bold; background: #ffcb05; color: #1d2c5e; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">🔴 던지기</button>
-                <button onclick="clickRunaway()" style="grid-column: span 2; padding: 10px; font-weight: bold; background: #555; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">🏃‍♂️ 도망치기</button>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <button onclick="clickAttack()" style="padding: 10px; font-weight: bold; background: #ff5353; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">💥 공격</button>
+                <button onclick="clickCatch()" style="padding: 10px; font-weight: bold; background: #ffcb05; color: #1d2c5e; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">🔴 포획</button>
+                <button onclick="clickRunaway()" style="grid-column: span 2; padding: 8px; font-weight: bold; background: #555; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px;">🏃‍♂️ 도망치기</button>
             </div>
-
         </div>
     </div>
 
-    <!-- 💡 혹시 모를 브라우저 캐시 방지를 위해 고유 버전을 붙여 배인딩합니다. -->
     <script src="app.js?v=multi_map_ok"></script>
 </body>
 </html>
