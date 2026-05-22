@@ -23,14 +23,23 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // 🗺️ 기존 게임 맵 및 타일 설정 유지
-    private final int[][] gameMap = {
+    // 🗺️ 맵별 타일 데이터 (0: 잔디/이동가능, 1: 갈색벽/이동불가)
+    private final int[][] townMap = {
             {0, 0, 0, 1, 1},
             {1, 1, 0, 1, 0},
             {0, 0, 0, 0, 0},
             {0, 1, 1, 1, 0},
             {0, 0, 0, 1, 0}
     };
+
+    private final int[][] fieldMap = {
+            {0, 0, 0, 0, 0},
+            {0, 1, 1, 1, 0},
+            {0, 0, 0, 0, 0},
+            {0, 1, 0, 1, 0},
+            {1, 1, 0, 1, 1}
+    };
+
     private final int TILE_SIZE = 80;
 
     // 🟢 [입장] 웹소켓 네트워크가 최초 연결되었을 때
@@ -38,7 +47,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         String sessionId = session.getId();
         sessions.put(sessionId, session);
-        // 💡 이제 연결 즉시 DB에 저장하지 않습니다. 로그인에 성공해야 캐릭터가 맵에 나타납니다!
         System.out.println("⚡ [네트워크 연결] 소켓 통신 개시 (세션 ID: " + sessionId + ")");
     }
 
@@ -70,12 +78,13 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                     signupResult.put("success", false);
                     signupResult.put("message", "이미 사용 중인 아이디입니다.");
                 } else {
-                    // 완전히 처음 온 유저라면 기본 좌표(180, 130)와 함께 DB 새 가입 처리
+                    // 완전히 처음 온 유저라면 기본 좌표(180, 130)와 함께 기본 맵 'town' 지정 후 DB 가입 처리
                     Player newPlayer = new Player();
                     newPlayer.setId(username);
-                    newPlayer.setPassword(password); // 1단계에서 Player 엔티티에 추가한 필드
+                    newPlayer.setPassword(password);
                     newPlayer.setX(180);
                     newPlayer.setY(130);
+                    newPlayer.setMap("town"); // 🗺️ 기본 시작 맵 설정
                     playerRepository.save(newPlayer);
 
                     signupResult.put("success", true);
@@ -93,7 +102,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 Player player = playerRepository.findById(username).orElse(null);
                 Map<String, Object> loginResult = new HashMap<>();
 
-                // 계정이 없거나 패스워드가 다를 경우 거절
                 if (player == null || !player.getPassword().equals(password)) {
                     loginResult.put("type", "LOGIN_RESULT");
                     loginResult.put("success", false);
@@ -102,75 +110,97 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                     return;
                 }
 
-                // 💡 [핵심 인증 체킹] 세션 저장소에 로그인에 성공한 진짜 유저의 아이디를 주입합니다.
                 session.getAttributes().put("username", username);
                 System.out.println("🔓 [로그인 인증 완료] 트레이너 맵 진입 -> ID: " + username);
 
-                // 💡 [DB 연동] 현재 H2 DB에 등록된 모든 플레이어 목록 수집 (기존 로직 100% 사수)
-                Map<String, Map<String, Integer>> currentPlayers = new HashMap<>();
+                // 💡 [DB 연동] 현재 모든 플레이어 목록 수집 시 각자의 세이브 맵 상태도 함께 보냅니다.
+                Map<String, Object> currentPlayers = new HashMap<>();
                 for (WebSocketSession s : sessions.values()) {
                     String activeUser = (String) s.getAttributes().get("username");
 
                     if (activeUser != null) {
                         playerRepository.findById(activeUser).ifPresent(p -> {
-                            Map<String, Integer> pos = new HashMap<>();
-                            pos.put("x", p.getX());
-                            pos.put("y", p.getY());
-                            currentPlayers.put(p.getId(), pos);
+                            Map<String, Object> pData = new HashMap<>();
+                            pData.put("x", p.getX());
+                            pData.put("y", p.getY());
+                            pData.put("map", p.getMap() != null ? p.getMap().toLowerCase() : "town"); // 🗺️ 유저별 맵 전송
+                            currentPlayers.put(p.getId(), pData);
                         });
                     }
                 }
 
-                // HTML이 받던 "INIT" 데이터 구조 완벽 연동
                 Map<String, Object> initData = new HashMap<>();
                 initData.put("type", "INIT");
-                initData.put("myId", username); // 이제 내 식별키는 고유 닉네임(아이디)이 됩니다!
+                initData.put("myId", username);
                 initData.put("players", currentPlayers);
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(initData)));
 
-                // 내가 들어왔음을 다른 유저들에게도 방송 알림
-                sendBroadcastUpdate(username, player.getX(), player.getY());
+                // 내가 어떤 맵으로 진입했는지 기본 상태 꺼내서 동기화 방송
+                String initialMap = player.getMap() != null ? player.getMap().toLowerCase() : "town";
+                sendBroadcastUpdate(username, player.getX(), player.getY(), initialMap);
             }
 
-            // 🏃‍♂️ [C] 캐릭터 이동 요청 (기존 이동 로직 완벽 유지)
+            // 🏃‍♂️ [C] 캐릭터 이동 요청 (멀티 맵 전환 완벽 지원 픽스본)
             else if ("MOVE".equals(type)) {
-                // 세션에 저장해뒀던 진짜 로그인 아이디를 꺼냅니다.
                 String username = (String) session.getAttributes().get("username");
-                // 로그인을 안 하고 해킹 패킷을 보내는 경우 원천 차단
                 if (username == null) return;
 
                 int nextX = ((Number) requestData.get("x")).intValue();
                 int nextY = ((Number) requestData.get("y")).intValue();
 
-                // 캐릭터 정중앙 기준 타일 충돌 판정 로직 그대로 유지
-                int tileX = (nextX + 32) / TILE_SIZE;
-                int tileY = (nextY + 32) / TILE_SIZE;
+                // 프론트엔드가 요구하는 목적지 맵 이름 수집
+                String clientMap = (String) requestData.get("map");
+                if (clientMap == null) clientMap = "town";
+                String safeClientMap = clientMap.toLowerCase();
 
                 boolean canMove = true;
 
-                // 맵 경계선 및 벽 충돌 검사 그대로 유지
-                if (tileX < 0 || tileX >= 5 || tileY < 0 || tileY >= 5) {
-                    canMove = false;
-                    System.out.println("🚫 [판정] 맵 밖으로 나가서 이동 불가! (TileX: " + tileX + ", TileY: " + tileY + ")");
-                } else if (gameMap[tileY][tileX] == 1) {
-                    canMove = false;
-                    System.out.println("🚫 [판정] 벽에 부딪혀서 이동 불가! (TileX: " + tileX + ", TileY: " + tileY + ")");
+                Player player = playerRepository.findById(username).orElse(null);
+                if (player != null) {
+                    String currentDbMap = player.getMap() != null ? player.getMap().toLowerCase() : "town";
+
+                    // 🚪 [맵 전환 게이트 활성화] 프론트가 요구하는 타겟 맵과 DB의 현재 세이브 맵이 다르다면?
+                    // 경계선을 지나 워프하는 긴급 상태이므로 타일 충돌 계산 없이 무조건 통과시킵니다.
+                    if (!currentDbMap.equals(safeClientMap)) {
+                        canMove = true;
+                        System.out.println("🚪 [맵 전환 통과] 유저 [" + username + "] -> " + currentDbMap + " 에서 " + safeClientMap + "(으)로 전환");
+                    }
+                    // 🧱 [일반 무빙] 같은 맵 내부에서 꼼지락거릴 때만 정밀 타일 벽 충돌 체크
+                    else {
+                        int tileX = (nextX + 32) / TILE_SIZE;
+                        int tileY = (nextY + 32) / TILE_SIZE;
+
+                        // 맵 경계선 및 해당 맵의 벽 구조 체크
+                        if (tileX < 0 || tileX >= 5 || tileY < 0 || tileY >= 5) {
+                            canMove = false;
+                        } else {
+                            int[][] targetMapArr = "field".equals(safeClientMap) ? fieldMap : townMap;
+                            if (targetMapArr[tileY][tileX] == 1) {
+                                canMove = false;
+                            }
+                        }
+                    }
                 }
 
-                // 💡 이동이 가능할 때만 H2 DB의 좌표를 업데이트합니다.
+                // 💡 이동이 가능할 때 쿼리를 1순위로 즉시 강제 커밋(Flush)합니다.
                 if (canMove) {
-                    System.out.println("✅ [판정] 이동 가능! 유저 [" + username + "] -> X: " + nextX + ", Y: " + nextY);
+                    final int finalX = nextX;
+                    final int finalY = nextY;
+                    final String finalMap = safeClientMap;
+
                     playerRepository.findById(username).ifPresent(p -> {
-                        p.setX(nextX);
-                        p.setY(nextY);
-                        playerRepository.save(p);
+                        p.setX(finalX);
+                        p.setY(finalY);
+                        p.setMap(finalMap); // 🗺️ 최신 데이터베이스 맵 업데이트
+                        playerRepository.saveAndFlush(p); // 👈 영속성 캐시 무력화 직후 실시간 쓰기
                     });
                 }
 
-                // 💡 DB에서 최종 확정된 내 좌표를 다시 꺼내옵니다. (거절당했다면 이전 좌표가 나옴)
+                // 💡 최종 가공이 승인 완료된 최신 확정 데이터 기준 동기화 브로드캐스트 송출
                 Player currentState = playerRepository.findById(username).orElse(null);
                 if (currentState != null) {
-                    sendBroadcastUpdate(username, currentState.getX(), currentState.getY());
+                    String savedMap = currentState.getMap() != null ? currentState.getMap().toLowerCase() : "town";
+                    sendBroadcastUpdate(username, currentState.getX(), currentState.getY(), savedMap);
                 }
             }
             else if ("CHAT".equals(type)) {
@@ -205,12 +235,10 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         String sessionId = session.getId();
         sessions.remove(sessionId);
 
-        // 세션에 숨겨두었던 진짜 로그인 유저 아이디를 꺼냅니다.
         String username = (String) session.getAttributes().get("username");
         System.out.println("❌ [퇴장] 네트워크 소켓 종료 (세션 ID: " + sessionId + " | 로그인 유저: " + username + ")");
 
         if (username != null) {
-            // HTML이 받던 "REMOVE" 브로드캐스트 로직 그대로 유지
             Map<String, Object> removeData = new HashMap<>();
             removeData.put("type", "REMOVE");
             removeData.put("id", username);
@@ -224,13 +252,14 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    // 📡 [공통 방송용 헬퍼 메서드] 중복을 방지하기 위해 밖으로 추출
-    private void sendBroadcastUpdate(String username, int x, int y) throws Exception {
+    // 📡 [공통 방송용 헬퍼 메서드] 맵 동기화를 위해 map 인자값을 추가 수용합니다.
+    private void sendBroadcastUpdate(String username, int x, int y, String mapName) throws Exception {
         Map<String, Object> responseData = new HashMap<>();
         responseData.put("type", "UPDATE");
         responseData.put("id", username);
         responseData.put("x", x);
         responseData.put("y", y);
+        responseData.put("map", mapName.toLowerCase()); // 🗺️ 프론트엔드로 실시간 맵 전송
 
         String jsonResponse = objectMapper.writeValueAsString(responseData);
         for (WebSocketSession s : sessions.values()) {

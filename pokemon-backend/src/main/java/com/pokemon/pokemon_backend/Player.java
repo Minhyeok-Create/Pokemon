@@ -12,9 +12,10 @@ import lombok.Setter;
 @Setter
 public class Player {
     @Id
-    private String id;
-    private String password;
-    private int x;
-    private int y;
+    private String id;       // 트레이너 로그인 아이디 (Primary Key)
+    private String password; // 트레이너 비밀번호
+    private int x;           // 캐릭터 실시간 X 좌표
+    private int y;           // 캐릭터 실시간 Y 좌표
 
+    private String map;
 }

@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>웹 프로젝트</title>
+    <title>포켓몬 온라인 프로젝트</title>
     <style>
         body {
             background-color: #222;
@@ -18,13 +18,11 @@
         }
         canvas {
             border: 4px solid #fff;
-            background-color: #7cfc00;
-            /* 💡 로그인 성공 전까지는 캔버스를 화면에서 숨깁니다. */
+            /* 🎨 고정 배경색을 삭제하여 자바스크립트가 실시간으로 변경하는 맵 색상(연두색/사막색)이 그대로 투영되게 합니다. */
             display: none; 
             border-radius: 8px;
         }
         #game-desc {
-            /* 💡 설명 글자도 로그인 전에는 숨깁니다. */
             display: none;
             margin: 10px 0 5px 0;
             font-size: 14px;
@@ -35,7 +33,7 @@
         #auth-container {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(34, 34, 34, 0.95); /* 배경과 어우러지는 어두운 톤 */
+            background: rgba(34, 34, 34, 0.95);
             display: flex; justify-content: center; align-items: center;
             z-index: 9999;
         }
@@ -64,7 +62,7 @@
         /* 💬 채팅 컨테이너 스타일 보정 */
         #chat-container {
             display: none; 
-            width: 408px; /* 캔버스 border(4px * 2 = 8px)를 고려해 가로폭 일치 */
+            width: 408px;
             margin-top: 5px;
         }
         #chat-box {
@@ -114,7 +112,8 @@
     </div>
 
     <!-- 🎮 게임 월드 및 채팅 화면 영역 -->
-    <canvas id="myCanvas" width="400" height="300"></canvas>
+    <!-- 🧱 [버그 픽스]: 타일 크기 싱크를 맞추기 위해 height를 300에서 400으로 교정했습니다! -->
+    <canvas id="myCanvas" width="400" height="400"></canvas>
     <p id="game-desc">방향키: 이동 제어 / Enter: 채팅 입력</p>
     
     <div id="chat-container">
@@ -124,6 +123,7 @@
         <input type="text" id="chat-input" placeholder="메시지를 입력하고 엔터를 누르세요..." autocomplete="off" />
     </div>
 
-    <script src="app.js"></script>
+    <!-- 💡 혹시 모를 브라우저 캐시 방지를 위해 고유 버전을 붙여 배인딩합니다. -->
+    <script src="app.js?v=multi_map_ok"></script>
 </body>
 </html>

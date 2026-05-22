@@ -5,24 +5,39 @@ const charimage = new Image();
 charimage.src = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png';
 
 let myId = null;       // 서버 로그인 성공 시 나에게 부여해 준 고유 트레이너 ID (아이디)
-let players = {};      // 서버에 접속 중인 모든 플레이어들의 좌표 저장소 ({ id: {x, y, chatMessage, chatTimeout}, ... })
+let players = {};      // 서버에 접속 중인 모든 플레이어들의 좌표 저장소 ({ id: {x, y, map, chatMessage, chatTimeout}, ... })
 let isLoaded = false;  // 로그인 완료 전까지 게임 루프 가동 및 키 입력을 잠그는 플래그
 
-const gameMap = [
-    [0, 0, 0, 1, 1],
-    [1, 1, 0, 1, 0],
-    [0, 0, 0, 0, 0],
-    [0, 1, 1, 1, 0],
-    [0, 0, 0, 1, 0]
-];
+// 🗺️ 맵별 타일 데이터 구조 정의
+const maps = {
+    town: [
+        [0, 0, 0, 1, 1],
+        [1, 1, 0, 1, 0],
+        [0, 0, 0, 0, 0],
+        [0, 1, 1, 1, 0],
+        [0, 0, 0, 1, 0]
+    ],
+    field: [
+        [0, 0, 0, 0, 0],
+        [0, 1, 1, 1, 0],
+        [0, 0, 0, 0, 0],
+        [0, 1, 0, 1, 0],
+        [1, 1, 0, 1, 1]
+    ]
+};
+
+let currentMapName = 'town'; // 내 화면 캔버스 렌더링 기준 맵 명칭
 const TILE_SIZE = 80;
 const SPEED = 8;
+const CHAR_SIZE = 64;
+const CANVAS_WIDTH = canvas.width;
+const CANVAS_HEIGHT = canvas.height;
 
 /* 🌐 [배포 대비 핵심 수정] 로컬 환경과 실제 인터넷 배포 환경의 웹소켓 주소를 자동으로 분기합니다. */
 const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const SERVER_URL = isLocalhost
     ? 'ws://localhost:8080/game'
-    : 'https://pokemon-backend-o9nh.onrender.com/game'; // 👈 나중에 렌더 배포 후 생성되는 'onrender.com' 주소로 여기만 바꿔주면 됩니다!
+    : 'wss://pokemon-backend-o9nh.onrender.com/game'; 
 
 const socket = new WebSocket(SERVER_URL);
 
@@ -53,7 +68,12 @@ socket.onmessage = (event) => {
         myId = data.myId;
         players = data.players;
         
-        // 💡 UI 대전환: 로그인 화면을 완전히 숨기고, 숨겨져 있던 캔버스와 채팅창을 드러냅니다.
+        // 내 캐릭터가 등록되어 있고 맵 정보가 있다면 로컬 맵 동기화
+        if (players[myId] && players[myId].map) {
+            currentMapName = players[myId].map.toLowerCase();
+        }
+        
+        // 💡 UI 대전환: 로그인 화면을 완전히 숨기고, 숨겨져 있던 캔버사와 채팅창을 드러냅니다.
         document.getElementById('auth-container').style.display = 'none';
         document.getElementById('myCanvas').style.display = 'block';
         document.getElementById('game-desc').style.display = 'block';
@@ -67,12 +87,20 @@ socket.onmessage = (event) => {
     
     // 🏃‍♂️ [D] 실시간 이동 및 퇴장 처리
     else if (data.type === 'UPDATE') {
+        const safeMapName = data.map ? data.map.toLowerCase() : 'town';
+        
         // 🛠️ [버그 수정]: 이동 패킷이 올 때 말풍선(chatMessage)과 타이머(chatTimeout)가 지워지지 않도록 기존 값을 보존합니다.
         if (players[data.id]) {
             players[data.id].x = data.x;
             players[data.id].y = data.y;
+            players[data.id].map = safeMapName; // 🗺️ 유저별 현재 소속 맵 갱신
         } else {
-            players[data.id] = { x: data.x, y: data.y };
+            players[data.id] = { x: data.x, y: data.y, map: safeMapName };
+        }
+
+        // 💡 실시간으로 내려받은 패킷 주인이 '나'라면 화면 렌더링 타겟 맵 변수도 완전 동기화시킵니다.
+        if (data.id === myId) {
+            currentMapName = safeMapName;
         }
     } 
     else if (data.type === 'REMOVE') {
@@ -195,14 +223,20 @@ function drawBubble(ctx, text, x, y) {
 function gameLoop() {
     if (!isLoaded) return; 
 
-    // 1. 배경 그리기
-    ctx.fillStyle = '#7cfc00';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // 현재 플레이어가 가리키는 실제 최신 동기화 맵 정보를 기반으로 캐싱 추적
+    const currentMap = maps[currentMapName] ? maps[currentMapName] : maps['town'];
+
+    // 🎨 [버그 교정]: 새 프레임을 찍을 때 기존 캔버스 찌꺼기 도화지를 완전히 초기화 클리어 처리합니다.
+    ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // 1. 배경 그리기 (마을은 오리지널 연두색 #7cfc00, 들판은 구분선이 확실히 가도록 사막 황토색 #f4a460 처리)
+    ctx.fillStyle = currentMapName === 'town' ? '#7cfc00' : '#f4a460';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // 2. 벽 그리기
     for (let r = 0; r < 5; r++) {
         for (let c = 0; c < 5; c++) {
-            if (gameMap[r][c] === 1) {
+            if (currentMap[r][c] === 1) {
                 ctx.fillStyle = '#8b4513';
                 ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
             }
@@ -212,6 +246,10 @@ function gameLoop() {
     // 3. 접속 중인 모든 플레이어들의 피카츄 및 아이디 닉네임, 말풍선 그리기
     for (let id in players) {
         const p = players[id];
+        
+        // 💡 나랑 같은 공간(맵)에 속한 트레이너 유저들만 화면 캔버스에 드로잉 처리하고 다르면 패스!
+        if (p.map && p.map !== currentMapName) continue;
+        
         ctx.drawImage(charimage, p.x, p.y, 64, 64);
         
         ctx.font = 'bold 12px Arial';
@@ -232,12 +270,13 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-// ⌨️ [독립 분리 완료] 키보드 조작 이벤트 제어 리스너
+// ⌨️ [독립 분리 완료] 키보드 조작 이벤트 제어 리스너 (경계면 안전 마진 워프 적용)
 window.addEventListener('keydown', (e) => {
     if (!isLoaded || !myId || !players[myId]) return;
 
     let targetX = players[myId].x;
     let targetY = players[myId].y;
+    let sendMapName = currentMapName; // 현재 내가 서 있는 로컬 맵 기준 매핑 시작
     let moved = false;
    
     if (e.key === 'ArrowUp')    { targetY -= SPEED; moved = true; }
@@ -245,13 +284,34 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowLeft')  { targetX -= SPEED; moved = true; }
     if (e.key === 'ArrowRight') { targetX += SPEED; moved = true; }
 
-    if (moved && socket.readyState === WebSocket.OPEN) {
-        const wishData = { 
-            type: "MOVE",
-            x: targetX, 
-            y: targetY 
-        };
-        socket.send(JSON.stringify(wishData));
+    if (moved) {
+        // 🚪 A. 마을(town) 우측 경계선 탈출 시 -> 들판(field) 안전마진 구역(X=40)으로 스폰 좌표 가공
+        if (currentMapName === 'town' && targetX > CANVAS_WIDTH - CHAR_SIZE) {
+            sendMapName = 'field';
+            targetX = 40; 
+        }
+        // 🚪 B. 들판(field) 좌측 경계선 탈출 시 -> 마을(town) 안전마진 구역(오른쪽 입구선)으로 리턴 복귀
+        else if (currentMapName === 'field' && targetX < 0) {
+            sendMapName = 'town';
+            targetX = CANVAS_WIDTH - CHAR_SIZE - 40; 
+        }
+        // 🧱 C. 일반 맵 내부 무빙일 때만 캔버스 테두리 외부 무단 이탈 차단막 기동
+        else {
+            if (targetX < 0) targetX = 0;
+            if (targetX > CANVAS_WIDTH - CHAR_SIZE) targetX = CANVAS_WIDTH - CHAR_SIZE;
+            if (targetY < 0) targetY = 0;
+            if (targetY > CANVAS_HEIGHT - CHAR_SIZE) targetY = CANVAS_HEIGHT - CHAR_SIZE;
+        }
+
+        if (socket.readyState === WebSocket.OPEN) {
+            const wishData = { 
+                type: "MOVE",
+                x: targetX, 
+                y: targetY,
+                map: sendMapName // 🗺️ 타겟 맵 이름 도장을 함께 찍어서 서버로 상신
+            };
+            socket.send(JSON.stringify(wishData));
+        }
     }
 });
 
