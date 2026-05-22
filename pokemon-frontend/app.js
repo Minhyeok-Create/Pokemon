@@ -29,8 +29,20 @@ const SERVER_URL = IS_LOCALHOST
     : 'wss://pokemon-backend-o9nh.onrender.com/game';
 
 // ==========================================
-// 2. NETWORK MANAGER CLASS (소켓 통신 전담)
+// 2. NETWORK MANAGER & POKEMON POOL
 // ==========================================
+const POKEMON_IMAGE_POOL = {
+    "피카츄": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png",
+    "피츄": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/172.png",
+    "구구": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/16.png",
+    "꼬렛": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/19.png",
+    "캐터피": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/10.png",
+    "아보": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/23.png",
+    "파이리": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/4.png",
+    "꼬부기": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/7.png",
+    "이상해씨": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/1.png"
+};
+
 class NetworkManager {
     constructor(game) {
         this.game = game;
@@ -105,7 +117,7 @@ class NetworkManager {
 }
 
 // ==========================================
-// 3. GAME RENDERER CLASS (캔버스 그래픽 드로잉 전담)
+// 3. GAME RENDERER CLASS (골드 버전 도트 패턴 복원 엔진)
 // ==========================================
 class GameRenderer {
     constructor(game) {
@@ -119,32 +131,93 @@ class GameRenderer {
 
     render() {
         const currentMap = MAPS[this.game.currentMapName] || MAPS['town'];
+        const isTown = this.game.currentMapName === 'town';
         
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-        // 1. 지형 배경 그리기
-        this.ctx.fillStyle = this.game.currentMapName === 'town' ? '#7cfc00' : '#f4a460';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        // 🎨 닌텐도 클래식 특유의 칼도트 연출을 위해 계단현상 방지 강제 OFF
+        this.ctx.imageSmoothingEnabled = false;
 
-        // 2. 타일 렌더링 루프
+        // 🧱 타일 렌더링 루프 (기존 충돌 및 이동 판정 로직 100% 보존)
         for (let r = 0; r < 5; r++) {
             for (let c = 0; c < 5; c++) {
-                if (currentMap[r][c] === 1) {
-                    this.ctx.fillStyle = '#8b4513';
-                    this.ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                }
-                else if (currentMap[r][c] === 2) {
-                    this.ctx.fillStyle = '#228b22'; 
-                    this.ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                let tx = c * TILE_SIZE;
+                let ty = r * TILE_SIZE;
+
+                // 🌿 [0번 타일]: 포켓몬 골드 연두색 격자 잔디 길 복원
+                if (currentMap[r][c] === 0) {
+                    this.ctx.fillStyle = isTown ? '#7bc673' : '#ebd28f'; // 기본 바닥
+                    this.ctx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
                     
-                    this.ctx.strokeStyle = '#006400';
+                    // 골드버전 고유의 바닥 미세 가로 도트 무늬 디테일 주입
+                    this.ctx.fillStyle = isTown ? '#63b55a' : '#dbae5c';
+                    for (let dy = 10; dy < TILE_SIZE; dy += 20) {
+                        this.ctx.fillRect(tx + 15, ty + dy, 12, 3);
+                        this.ctx.fillRect(tx + 50, ty + dy + 8, 12, 3);
+                    }
+                    // 겉 테두리 은은한 경계선
+                    this.ctx.strokeStyle = isTown ? '#6bb762' : '#dfc67c';
+                    this.ctx.strokeRect(tx, ty, TILE_SIZE, TILE_SIZE);
+                }
+                
+                // 🧱 [1번 타일]: 골드버전 특유의 '각진 계단형 바위 격벽' 픽셀화
+                else if (currentMap[r][c] === 1) {
+                    // 바위 베이스 어두운 음영색
+                    this.ctx.fillStyle = isTown ? '#316331' : '#8c763e';
+                    this.ctx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
+
+                    // 계단식 돌출부 묘사 (골드버전 바위산 무늬 복사)
+                    this.ctx.fillStyle = isTown ? '#5a9c5a' : '#cca752';
+                    this.ctx.fillRect(tx + 4, ty + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+
+                    this.ctx.fillStyle = isTown ? '#8cd68c' : '#fae19c'; // 최고 하이라이트층
+                    this.ctx.fillRect(tx + 4, ty + 4, TILE_SIZE - 8, 16);
+                    this.ctx.fillRect(tx + 4, ty + 4, 16, TILE_SIZE - 8);
+
+                    // 그림자 골짜기 픽셀 선 장식
+                    this.ctx.fillStyle = isTown ? '#183918' : '#524321';
+                    this.ctx.fillRect(tx + 30, ty + 35, 20, 6);
+                    this.ctx.fillRect(tx + 45, ty + 50, 20, 6);
+                    this.ctx.fillRect(tx, ty + TILE_SIZE - 6, TILE_SIZE, 6);
+                    this.ctx.fillRect(tx + TILE_SIZE - 6, ty, 6, TILE_SIZE);
+                }
+                
+                // 🌾 [2번 타일]: 골드버전의 상징인 자글자글한 '격자형 촘촘 수풀 무늬' 완벽 구현
+                else if (currentMap[r][c] === 2) {
+                    // 수풀 베이스 진녹색 배경
+                    this.ctx.fillStyle = isTown ? '#104210' : '#655321'; 
+                    this.ctx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
+
+                    // 4등분 그리드 개별 도트 풀잎 무늬 구현
+                    this.ctx.fillStyle = isTown ? '#429c42' : '#cca752';
+                    
+                    const subSize = TILE_SIZE / 2; // 40px 단위 스플릿
+                    for (let si = 0; si < 2; si++) {
+                        for (let sj = 0; sj < 2; sj++) {
+                            let stx = tx + (si * subSize);
+                            let sty = ty + (sj * subSize);
+                            
+                            // 골드버전 고유의 ∩ 자형 무늬 풀숲 픽셀 드로우
+                            this.ctx.fillRect(stx + 10, sty + 12, 20, 6);
+                            this.ctx.fillRect(stx + 6, sty + 18, 6, 16);
+                            this.ctx.fillRect(stx + 28, sty + 18, 6, 16);
+                            this.ctx.fillRect(stx + 14, sty + 22, 12, 6);
+                            
+                            // 풀숲 내부 명암 포인트 점박이 추가
+                            this.ctx.fillStyle = isTown ? '#a5e7a5' : '#fae19c';
+                            this.ctx.fillRect(stx + 16, sty + 14, 8, 3);
+                            this.ctx.fillStyle = isTown ? '#429c42' : '#cca752'; // 색상 복구
+                        }
+                    }
+                    // 수풀 경계 마감 검은 실선 테두리
+                    this.ctx.strokeStyle = isTown ? '#082108' : '#423210';
                     this.ctx.lineWidth = 2;
-                    this.ctx.strokeRect(c * TILE_SIZE + 10, r * TILE_SIZE + 10, TILE_SIZE - 20, TILE_SIZE - 20);
+                    this.ctx.strokeRect(tx + 2, ty + 2, TILE_SIZE - 4, TILE_SIZE - 4);
                 }
             }
         }
 
-        // 3. 플레이어 캐릭터 및 이름표, 말풍선 그리기
+        // 4. 플레이어 캐릭터 및 이름표, 말풍선 그리기 (기존 멀티 동기화 철저 보존)
         for (let id in this.game.players) {
             const p = this.game.players[id];
             if (p.map && p.map !== this.game.currentMapName) continue;
@@ -153,11 +226,15 @@ class GameRenderer {
             
             this.ctx.font = 'bold 12px Arial';
             if (id === this.game.myId) {
-                this.ctx.fillStyle = '#0000ff';
-                this.ctx.fillText(id + " (Me)", p.x + 10, p.y - 5);
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                this.ctx.fillRect(p.x - 4, p.y - 18, this.ctx.measureText(id + " (Me)").width + 12, 16);
+                this.ctx.fillStyle = '#ffcb05';
+                this.ctx.fillText(id + " (Me)", p.x + 2, p.y - 6);
             } else {
-                this.ctx.fillStyle = '#000000';
-                this.ctx.fillText(id, p.x + 15, p.y - 5);
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                this.ctx.fillRect(p.x + 4, p.y - 18, this.ctx.measureText(id).width + 10, 16);
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.fillText(id, p.x + 9, p.y - 6);
             }
 
             if (p.chatMessage) {
@@ -169,108 +246,86 @@ class GameRenderer {
     drawBubble(text, x, y) {
         this.ctx.font = '12px sans-serif';
         const textWidth = this.ctx.measureText(text).width;
-        const bubbleWidth = textWidth + 16;
+        const bubbleWidth = Math.max(40, textWidth + 16);
         const bubbleHeight = 24;
         
         const bx = x + 32 - (bubbleWidth / 2);
-        const by = y - 35;
+        const by = y - 48;
 
-        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
         this.ctx.beginPath();
-        this.ctx.roundRect(bx, by, bubbleWidth, bubbleHeight, 6);
+        this.ctx.roundRect(bx, by, bubbleWidth, bubbleHeight, 8);
         this.ctx.fill();
-        this.ctx.strokeStyle = '#000000';
-        this.ctx.lineWidth = 1;
+        this.ctx.strokeStyle = '#ffcb05';
+        this.ctx.lineWidth = 2;
         this.ctx.stroke();
 
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
         this.ctx.beginPath();
-        this.ctx.moveTo(x + 32 - 5, by + bubbleHeight);
-        this.ctx.lineTo(x + 32 + 5, by + bubbleHeight);
-        this.ctx.lineTo(x + 32, by + bubbleHeight + 5);
+        this.ctx.moveTo(x + 32 - 6, by + bubbleHeight);
+        this.ctx.lineTo(x + 32 + 6, by + bubbleHeight);
+        this.ctx.lineTo(x + 32, by + bubbleHeight + 6);
         this.ctx.closePath();
         this.ctx.fill();
         this.ctx.stroke();
 
-        this.ctx.fillStyle = '#000000';
+        this.ctx.fillStyle = '#111111';
         this.ctx.textAlign = 'center';
+        this.ctx.font = 'bold 12px sans-serif';
         this.ctx.fillText(text, bx + (bubbleWidth / 2), by + 16);
         this.ctx.textAlign = 'left';
     }
 }
 
 // ==========================================
-// 4. INPUT HANDLER CLASS (버그 완벽 수정본)
+// 4. INPUT HANDLER CLASS (조이스틱 패드 꾹 누르기 기믹 완벽 작동)
 // ==========================================
 class InputHandler {
     constructor(game) {
-        this.game = game;
         this.chatInput = document.getElementById('chat-input');
+        this.game = game;
         this.initEvents();
     }
 
     initEvents() {
-        // ⌨️ [PC] 키보드 화살표 감지 리스너
         window.addEventListener('keydown', (e) => this.handleKeyDown(e));
-        
-        // 💬 채팅창 내부 키보드 감지 리스너
         this.chatInput.addEventListener('keydown', (e) => this.handleChatKeyDown(e));
 
-        // 📱 [모바일 꾹 누르기 연속 이동 엔진 시스템]
-        // 특정 방향 버튼을 꾹 누르고 있으면 0.12초마다 자동으로 handleKeyDown을 연사합니다.
         const bindContinuousTouch = (btnId, keyName) => {
             const btn = document.getElementById(btnId);
             if (!btn) return;
 
-            let moveTimer = null; // 연속 이동을 제어할 개별이동이 타이머 주머니
+            let moveTimer = null; 
 
-            // 1. 손가락으로 버튼을 대는 순간 (꾹 누르기 시작)
-            btn.addEventListener('touchstart', (e) => {
-                e.preventDefault(); // 롱터치 시 모바일 브라우저 돋보기/메뉴 팝업 차단
-                
-                // 터치하자마자 일단 즉시 한 칸 움직이고
+            const startMoving = (e) => {
+                e.preventDefault(); 
                 this.handleKeyDown({ key: keyName });
 
-                // 그 뒤로 손을 떼기 전까지 120밀리초(0.12초)마다 무한 연사 루프 기동
                 if (moveTimer === null) {
                     moveTimer = setInterval(() => {
                         this.handleKeyDown({ key: keyName });
                     }, 120); 
                 }
-            });
+            };
 
-            // 2. 손가락을 버튼에서 떼는 순간 (이동 정지)
-            btn.addEventListener('touchend', (e) => {
+            const stopMoving = () => {
                 if (moveTimer !== null) {
-                    clearInterval(moveTimer); // 연사 주사기 타이머 폭파
-                    moveTimer = null;
-                }
-            });
-
-            // 3. PC 브라우저 마우스 클릭으로 테스트할 때도 똑같이 꾹 누르기가 작동하도록 가드 이식
-            btn.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                this.handleKeyDown({ key: keyName });
-
-                if (moveTimer === null) {
-                    moveTimer = setInterval(() => {
-                        this.handleKeyDown({ key: keyName });
-                    }, 120);
-                }
-                window.focus();
-            });
-
-            // 마우스를 떼거나, 버튼 바깥으로 마우스가 탈출했을 때 타이머 청소
-            const stopMouse = () => {
-                if (moveTimer !== null) {
-                    clearInterval(moveTimer);
+                    clearInterval(moveTimer); 
                     moveTimer = null;
                 }
             };
-            btn.addEventListener('mouseup', stopMouse);
-            btn.addEventListener('mouseleave', stopMouse);
+
+            btn.addEventListener('touchstart', startMoving);
+            btn.addEventListener('touchend', stopMoving);
+
+            btn.addEventListener('mousedown', (e) => {
+                startMoving(e);
+                window.focus(); 
+            });
+            btn.addEventListener('mouseup', stopMoving);
+            btn.addEventListener('mouseleave', stopMoving);
         };
 
-        // 새로운 연속 터치 엔진에 스마트폰 D-Pad 버튼들 도킹 완료
         bindContinuousTouch('btn-up', 'ArrowUp');
         bindContinuousTouch('btn-down', 'ArrowDown');
         bindContinuousTouch('btn-left', 'ArrowLeft');
@@ -298,7 +353,6 @@ class InputHandler {
         let sendMapName = this.game.currentMapName;
         let moved = false;
 
-        // 🛠️ [버그 교정 3]: 대소문자 브라우저 연산 오차 방지를 위해 엄격 모드로 완전 통일 처리
         const key = e.key;
         if (key === 'ArrowUp' || key === 'up')       { targetY -= SPEED; moved = true; }
         if (key === 'ArrowDown' || key === 'down')   { targetY += SPEED; moved = true; }
@@ -341,7 +395,7 @@ class InputHandler {
 }
 
 // ==========================================
-// 5. MAIN GAME ENGINE SYSTEM (총괄 관리 클래스)
+// 5. MAIN GAME ENGINE SYSTEM
 // ==========================================
 class PokemonGame {
     constructor() {
@@ -372,7 +426,10 @@ class PokemonGame {
     appendChatMessage(id, msg) {
         const chatBox = document.getElementById('chat-box');
         const newMessage = document.createElement('div');
-        newMessage.style.marginBottom = '5px';
+        newMessage.style.marginBottom = '6px';
+        newMessage.style.padding = '3px 6px';
+        newMessage.style.borderRadius = '4px';
+        newMessage.style.background = 'rgba(0,0,0,0.2)';
 
         newMessage.innerHTML = (id === this.myId)
             ? `<span style="color: #ffcb05; font-weight: bold;">[${id}]:</span> ${msg}`
@@ -394,7 +451,18 @@ class PokemonGame {
 
     enterBattle(data) {
         this.gameState = 'BATTLE'; 
-
+        const myImgEl = document.getElementById('battle-my-img');
+        const enemyImgEl = document.getElementById('battle-enemy-img');
+        
+        if (myImgEl) {
+            myImgEl.src = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/25.png"; 
+        }
+        
+        if (enemyImgEl) {
+            const cleanedName = data.pokemonName ? data.pokemonName.trim() : "";
+            const matchedImg = POKEMON_IMAGE_POOL[cleanedName] || POKEMON_IMAGE_POOL["구구"];
+            enemyImgEl.src = matchedImg;
+        }
         document.getElementById('enemy-name').innerText = `야생의 ${data.pokemonName}`;
         document.getElementById('enemy-level').innerText = `Lv.${data.level}`;
         document.getElementById('enemy-hp-text').innerText = `HP: ${data.hp}/${data.maxHp}`;
@@ -419,9 +487,9 @@ class PokemonGame {
 
         let htmlContent = "";
         pokemonList.forEach((poke, index) => {
-            htmlContent += `<div style="margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid #555;">
-                <strong>[${index + 1}] ${poke.pokemonName}</strong> (Lv.${poke.level}) 
-                <span style="color:#ff4500;"> HP: ${poke.currentHp} / ${poke.maxHp}</span>
+            htmlContent += `<div style="margin-bottom:6px; padding:6px; border-bottom:1px solid #333; background: rgba(0,0,0,0.15); border-radius: 4px; display: flex; justify-content: space-between;">
+                <span><strong>[${index + 1}] ${poke.pokemonName}</strong> <span style="color:#aaa; font-size:11px;">Lv.${poke.level}</span></span>
+                <span style="color:#ff5353; font-weight:bold;">❤️ HP ${poke.currentHp}/${poke.maxHp}</span>
             </div>`;
         });
         bagListDiv.innerHTML = htmlContent;
@@ -468,7 +536,7 @@ class PokemonGame {
 }
 
 // ==========================================
-// 6. GLOBAL ACTION ROUTERS (HTML 연결 인터페이스)
+// 6. GLOBAL ACTION ROUTERS
 // ==========================================
 const gameInstance = new PokemonGame();
 
@@ -494,7 +562,6 @@ function clickAttack() {
     gameInstance.network.send({ type: "BATTLE_ATTACK" });
 }
 
-// 🛠️ [버그 교정 4]: 기존 오타가 있던 clickCatch() 함수 명칭 싱크 보정
 function clickCatch() {
     gameInstance.network.send({ type: "BATTLE_CATCH" });
 }
