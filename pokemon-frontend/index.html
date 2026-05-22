@@ -122,6 +122,56 @@
         </div>
         <input type="text" id="chat-input" placeholder="메시지를 입력하고 엔터를 누르세요..." autocomplete="off" />
     </div>
+    <div id="bag-container" style="display:none; width:408px; margin-top:10px; text-align:center;">
+        <button onclick="requestMyBag()" style="width:100%; padding:10px; font-weight:bold; background-color:#ffcb05; border:2px solid #fff; border-radius:6px; cursor:pointer;">🎒 내 포켓몬 가방 확인하기</button>
+        <div id="bag-list" style="margin-top:5px; background:#333; border:2px solid #fff; border-radius:6px; padding:10px; font-size:13px; text-align:left; max-height:100px; overflow-y:auto; color:#fff;">
+            버튼을 누르면 소지한 포켓몬 목록이 출력됩니다.
+        </div>
+    </div>
+    <!-- ⚔️ 1대1 턴제 배틀 전용 컨테이너 UI (기본 숨김) -->
+    <div id="battle-container" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; color: white; flex-direction: column; align-items: center; justify-content: center; z-index: 10000; font-family: sans-serif;">
+        <div style="width: 380px; background: #222; border: 4px solid #ffcb05; border-radius: 12px; padding: 20px; box-shadow: 0 0 20px rgba(255, 203, 5, 0.3);">
+            
+            <h2 style="text-align: center; color: #ffcb05; margin-top: 0; font-size: 20px; border-bottom: 2px solid #555; padding-bottom: 10px;">⚔️ BATTLE MODE ⚔️</h2>
+            
+            <!-- 🦖 적 야생 포켓몬 정보창 -->
+            <div style="background: #333; padding: 10px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #777;">
+                <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;">
+                    <span id="enemy-name" style="color: #ff5353;">야생의 구구</span>
+                    <span id="enemy-level">Lv.4</span>
+                </div>
+                <div style="width: 100%; background: #555; height: 12px; border-radius: 6px; margin-top: 5px; overflow: hidden; border: 1px solid #000;">
+                    <div id="enemy-hp-bar" style="width: 100%; background: #00ff00; height: 100%; transition: width 0.3s;"></div>
+                </div>
+                <div style="text-align: right; font-size: 11px; color: #aaa; margin-top: 2px;" id="enemy-hp-text">HP: 15/15</div>
+            </div>
+
+            <!-- ⚡ 대치 중 텍스트 연출 로그 -->
+            <div id="battle-log" style="height: 60px; background: #000; border-radius: 6px; padding: 8px; font-size: 13px; color: #5ce6e6; overflow-y: auto; margin-bottom: 15px; border: 1px solid #444; line-height: 1.4;">
+                앗! 야생 포켓몬과 마주쳤다!
+            </div>
+
+            <!-- 🐹 내 출전 포켓몬 정보창 (가방의 1번 피카츄 고정) -->
+            <div style="background: #333; padding: 10px; border-radius: 6px; margin-bottom: 20px; border: 1px solid #777;">
+                <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px;">
+                    <span style="color: #ffcb05;">나의 피카츄</span>
+                    <span id="my-pokemon-level">Lv.5</span>
+                </div>
+                <div style="width: 100%; background: #555; height: 12px; border-radius: 6px; margin-top: 5px; overflow: hidden; border: 1px solid #000;">
+                    <div id="my-pokemon-hp-bar" style="width: 100%; background: #00ff00; height: 100%; transition: width 0.3s;"></div>
+                </div>
+                <div style="text-align: right; font-size: 11px; color: #aaa; margin-top: 2px;" id="my-pokemon-hp-text">HP: 20/20</div>
+            </div>
+
+            <!-- 🕹️ 전투 커맨드 버튼 그룹 -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <button onclick="clickAttack()" style="padding: 12px; font-weight: bold; background: #ff5353; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">💥 공격하기</button>
+                <button onclick="clickCatch()" style="padding: 12px; font-weight: bold; background: #ffcb05; color: #1d2c5e; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">🔴 던지기</button>
+                <button onclick="clickRunaway()" style="grid-column: span 2; padding: 10px; font-weight: bold; background: #555; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">🏃‍♂️ 도망치기</button>
+            </div>
+
+        </div>
+    </div>
 
     <!-- 💡 혹시 모를 브라우저 캐시 방지를 위해 고유 버전을 붙여 배인딩합니다. -->
     <script src="app.js?v=multi_map_ok"></script>
