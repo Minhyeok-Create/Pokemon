@@ -23,4 +23,5 @@ public class CapturedPokemon {
     private int level;           // 포켓몬 레벨
     private int maxHp;           // 최대 체력
     private int currentHp;       // 현재 체력
+    private int exp = 0;
 }

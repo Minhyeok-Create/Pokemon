@@ -201,7 +201,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 java.util.List<CapturedPokemon> myPokes = capturedPokemonRepository.findByOwnerId(username);
                 if (!myPokes.isEmpty()) {
 
-                    // 🔍 1. 현재 세션에 등록된 출전 포켓몬 ID와 가방 속 진짜 포켓몬 매칭하기
                     CapturedPokemon myActivePoke = null;
                     if (battle.getPlayerActivePokemonUniqueId() != null) {
                         for (CapturedPokemon poke : myPokes) {
@@ -212,7 +211,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         }
                     }
 
-                    // 🔍 2. 만약 첫 턴이라서 출전 기록이 없다면? 가방의 0번째 녀석을 선발 투수로 자동 등록!
                     if (myActivePoke == null) {
                         myActivePoke = myPokes.get(0);
                         battle.setPlayerActivePokemonUniqueId(myActivePoke.getUniqueId());
@@ -220,7 +218,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
                     String activePokeName = myActivePoke.getPokemonName().trim();
 
-                    // 🛑 기절한 상태라면 공격 불가능 가드
                     if (myActivePoke.getCurrentHp() <= 0) {
                         res.put("log", "❌ " + activePokeName + "은(는) 기절하여 싸울 수 없습니다! 오른쪽 아래 대기실에서 교체할 포켓몬을 고르세요.");
                         res.put("battleEnded", false);
@@ -228,21 +225,59 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         return;
                     }
 
-                    // ⚔️ 아군 선제 공격 계산
                     int dmg = random.nextInt(5) + 4;
                     battle.setEnemyCurrentHp(Math.max(0, battle.getEnemyCurrentHp() - dmg));
                     res.put("enemyHp", battle.getEnemyCurrentHp());
-
-                    // 🔥 [중요]: 공격을 수행한 포켓몬의 이름을 명시하여 프론트엔드가 엉뚱한 스킨으로 롤백하는 걸 원천 차단!
                     res.put("myPokemonName", activePokeName);
 
-                    // 🏆 야생 포켓몬이 쓰러진 경우 (전투 승리)
+                    // 🏆 [야생 포켓몬 격파 -> 경험치 및 레벨업 정산 시퀀스]
                     if (battle.getEnemyCurrentHp() <= 0) {
-                        res.put("log", "💥 " + activePokeName + "의 몸통박치기 공격! (" + dmg + " 데미지!)\n\n🎉 야생의 " + battle.getEnemyName() + "이(가) 쓰러졌다! 승리했습니다!");
+                        StringBuilder logBuilder = new StringBuilder();
+                        logBuilder.append("💥 ").append(activePokeName).append("의 몸통박치기 공격! (").append(dmg).append(" 데미지!)\n\n");
+                        logBuilder.append("🎉 야생의 ").append(battle.getEnemyName()).append("이(가) 쓰러졌다!\n");
+
+                        // 1. 경험치 보상 계산: 야생몬 레벨 * 5
+                        int gainedExp = battle.getEnemyLevel() * 5;
+                        myActivePoke.setExp(myActivePoke.getExp() + gainedExp);
+                        logBuilder.append("✨ ").append(activePokeName).append("은(는) ").append(gainedExp).append(" XP의 경험치를 획득했다! ");
+
+                        // 2. 루프형 레벨업 체크 (경험치가 요구치를 초과하면 연쇄 레벨업 가능)
+                        int neededExp = myActivePoke.getLevel() * 20;
+                        boolean leveledUp = false;
+
+                        while (myActivePoke.getExp() >= neededExp) {
+                            myActivePoke.setExp(myActivePoke.getExp() - neededExp); // 요구치 차감
+                            myActivePoke.setLevel(myActivePoke.getLevel() + 1);    // 레벨 1 상승
+                            myActivePoke.setMaxHp(myActivePoke.getMaxHp() + 3);     // 최대 체력 +3 보상
+                            myActivePoke.setCurrentHp(myActivePoke.getMaxHp());     // 보너스로 체력 전원 완치!
+
+                            leveledUp = true;
+                            neededExp = myActivePoke.getLevel() * 20; // 다음 레벨 요구치 갱신
+                        }
+
+                        if (leveledUp) {
+                            logBuilder.append("\n🆙 ★★★ 축하합니다! ").append(activePokeName)
+                                    .append("(이)가 Lv.").append(myActivePoke.getLevel())
+                                    .append("(으)로 레벨업했습니다! (최대 HP +3) ★★★");
+                        } else {
+                            logBuilder.append("(").append(myActivePoke.getExp()).append("/").append(neededExp).append(" XP)");
+                        }
+
+                        // 3. 변동된 능력치 DB에 즉시 영구 저장
+                        capturedPokemonRepository.saveAndFlush(myActivePoke);
+
+                        res.put("log", logBuilder.toString());
                         res.put("battleEnded", true);
                         activeBattles.remove(username);
+
+                        // 전투 종료 후 리셋을 대비해 최신 가방 상태를 재동기화해서 보냅니다.
+                        myPokes = capturedPokemonRepository.findByOwnerId(username);
+                        Map<String, Object> bagResponse = new HashMap<>();
+                        bagResponse.put("type", "BAG_RESULT");
+                        bagResponse.put("list", myPokes);
+                        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(bagResponse)));
                     }
-                    // 🔄 야생 포켓몬이 살아남아 반격하는 경우
+                    // 🔄 야생 포켓몬 반격 타임
                     else {
                         int counterDmg = random.nextInt(3) + 1;
                         int nextMyHp = Math.max(0, myActivePoke.getCurrentHp() - counterDmg);
@@ -253,7 +288,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         res.put("myPokemonHp", nextMyHp);
                         res.put("myPokemonMaxHp", myActivePoke.getMaxHp());
 
-                        // 💀 반격을 맞고 내 포켓몬이 기절한 경우
                         if (nextMyHp <= 0) {
                             boolean hasAlivePokemon = false;
                             for (CapturedPokemon poke : myPokes) {
@@ -267,7 +301,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                                 res.put("log", "💥 " + activePokeName + "의 공격! (" + dmg + " 데미지!)\n🏃‍♂️ 야생의 " + battle.getEnemyName() + "의 반격! (" + counterDmg + " 피해!)\n\n💀 " + activePokeName + "이(가) 기절했습니다... 교체할 다른 포켓몬을 고르세요!");
                                 res.put("battleEnded", false);
                             } else {
-                                // 🏥 보유 포켓몬이 전멸한 경우 -> 포켓몬센터 강제 이송
                                 res.put("log", "💥 " + activePokeName + "의 공격! (" + dmg + " 데미지!)\n🏃‍♂️ 야생의 " + battle.getEnemyName() + "의 반격! (" + counterDmg + " 피해!)\n\n💀 모든 포켓몬이 기절했습니다!\n🏥 눈앞이 깜깜해졌다! 당신은 급히 마을 포켓몬센터로 이송되었습니다!");
                                 res.put("battleEnded", true);
                                 activeBattles.remove(username);
@@ -280,7 +313,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                                 sendBroadcastUpdate(username, 240, 160, "town");
                             }
                         } else {
-                            // 🏃 정상적인 교전 지속 로그
                             String[] skills = {"전광석화", "몸통박치기", "할퀴기"};
                             res.put("log", "💥 " + activePokeName + "의 " + skills[random.nextInt(skills.length)] + "! (" + dmg + " 데미지!)\n🏃‍♂️ 야생의 " + battle.getEnemyName() + "의 반격! (" + counterDmg + " 피해!)");
                             res.put("battleEnded", false);
