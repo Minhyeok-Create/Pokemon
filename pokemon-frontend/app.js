@@ -5,12 +5,12 @@ const TILE_SIZE = 80;
 const SPEED = 8;
 const CHAR_SIZE = 48; // 비율 고정 아담한 크기
 
-// 🗺️ 맵 데이터 (0: 잔디, 1: 벽, 2: 풀숲)
+// 🗺️ 맵 데이터 최신화 (0: 잔디, 1: 벽, 2: 🌾풀숲, 3: 🏥포켓몬센터 치료 타일!)
 const MAPS = {
     town: [
         [0, 0, 0, 1, 1],
         [1, 1, 0, 1, 0],
-        [2, 2, 0, 0, 0], 
+        [2, 2, 0, 3, 0], // 💡 마을 정중앙 우측(r=2, c=3)에 3번 포켓몬센터 병원 상주!
         [2, 1, 1, 1, 0], 
         [0, 0, 0, 1, 0]
     ],
@@ -121,6 +121,17 @@ class NetworkManager {
         else if (data.type === 'BAG_RESULT') {
             this.game.updateBagUI(data.list);
         }
+        else if (data.type === 'CENTER_HEAL_RESULT') {
+            const chatBox = document.getElementById('chat-box');
+            const newMessage = document.createElement('div');
+            newMessage.style.marginBottom = '6px';
+            newMessage.style.padding = '3px 6px';
+            newMessage.style.borderRadius = '4px';
+            newMessage.style.background = 'rgba(46, 204, 113, 0.2)'; // 싱그러운 회복 초록색 배경
+            newMessage.innerHTML = `<span style="color: #2ecc71; font-weight: bold;">[포켓몬센터]:</span> ${data.log}`;
+            chatBox.appendChild(newMessage);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
         else if (data.type === 'BATTLE_ROUND_RESULT') {
             this.game.handleBattleRound(data);
         }
@@ -134,7 +145,7 @@ class NetworkManager {
 }
 
 // ==========================================
-// 3. GAME RENDERER CLASS (멀티 스킨 피아식별 엔진)
+// 3. GAME RENDERER CLASS
 // ==========================================
 class GameRenderer {
     constructor(game) {
@@ -143,27 +154,22 @@ class GameRenderer {
         this.ctx = this.canvas.getContext('2d');
     }
 
-    // 🛠️ [라이벌 동기화 강화]: id 매개변수를 추가하여 내 캐릭터인지 타인 캐릭터인지 판별합니다.
     drawPixelSprite(direction, frame, cx, cy, isMe) {
         this.ctx.save();
         this.ctx.translate(cx - 24, cy - 24); 
         
         const P = 3; 
-
-        // 공통 컬러 에셋
         const WHITE = '#ffffff';
         const SKIN = '#ffd1a4';
         const BLUE_PANTS = '#2c3e50';
         const BLACK = '#111111';
         const BAG = '#e67e22';
 
-        // 🛠️ 기가 막힌 컬러 스위칭 기믹: 내 캐릭터면 오리지널 레드(지우), 다른 유저면 라이벌 블루(지크)로 자동 변경!
         const THEME_COLOR = isMe ? '#cc2222' : '#3498db'; 
 
         let bobY = (frame === 1 || frame === 3) ? P : 0;
         let legSwitch = (frame === 1) ? 1 : (frame === 3) ? 2 : 0;
 
-        // 1. 발바닥 그림자
         this.ctx.fillStyle = 'rgba(0,0,0,0.25)';
         this.ctx.fillRect(4*P, 14*P, 8*P, 2*P);
 
@@ -282,10 +288,18 @@ class GameRenderer {
                     }
                     this.ctx.strokeStyle = isTown ? '#082108' : '#423210'; this.ctx.strokeRect(tx + 2, ty + 2, TILE_SIZE - 4, TILE_SIZE - 4);
                 }
+                else if (currentMap[r][c] === 3) {
+                    this.ctx.fillStyle = '#3a5fcd'; this.ctx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE); 
+                    this.ctx.fillStyle = '#eeeeee'; this.ctx.fillRect(tx + 10, ty + 25, TILE_SIZE - 20, TILE_SIZE - 25); 
+                    this.ctx.fillStyle = '#ff0000';
+                    this.ctx.fillRect(tx + 35, ty + 40, 10, 25);
+                    this.ctx.fillRect(tx + 27, ty + 47, 26, 10);
+                    this.ctx.strokeStyle = '#222'; this.ctx.lineWidth = 2; this.ctx.strokeRect(tx, ty, TILE_SIZE, TILE_SIZE);
+                }
             }
         }
 
-        // 🚶‍♂️ 캐릭터 그리기 구역
+        // 🚶‍♂️ 2. 캐릭터 그리기
         for (let id in this.game.players) {
             const p = this.game.players[id];
             if (p.map && p.map !== this.game.currentMapName) continue;
@@ -296,7 +310,6 @@ class GameRenderer {
             const centerX = p.x + (TILE_SIZE / 2);
             const centerY = p.y + (TILE_SIZE / 2);
 
-            // 💡 [피아식별 분기 필터]: 내 ID와 대조해서 스킨 칼라를 결정하도록 인자(isMe) 전달!
             const isMe = (id === this.game.myId);
             this.drawPixelSprite(currentDir, currentFrame, centerX, centerY, isMe);
             
@@ -308,7 +321,6 @@ class GameRenderer {
                 this.ctx.fillStyle = '#ffcb05';
                 this.ctx.fillText(id + " (Me)", p.x + 2, p.y - 6);
             } else {
-                // 다른 라이벌 유저들은 이름표 텍스트도 스카이블루 색상으로 센스 보정!
                 this.ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
                 this.ctx.fillRect(p.x + 4, p.y - 18, this.ctx.measureText(id).width + 10, 16);
                 this.ctx.fillStyle = '#5ce6e6';
@@ -335,12 +347,16 @@ class GameRenderer {
 }
 
 // ==========================================
-// 4. INPUT HANDLER CLASS
+// 4. INPUT HANDLER CLASS (치료 패킷 연사 가드 추가 완성)
 // ==========================================
 class InputHandler {
     constructor(game) {
         this.chatInput = document.getElementById('chat-input');
         this.game = game;
+        
+        // 🏥 포켓몬센터 무한 패킷 난사 방지용 로컬 가드 상태 변수
+        this.hasHealedOnThisTile = false; 
+        
         this.initEvents();
     }
 
@@ -426,6 +442,24 @@ class InputHandler {
                 if (targetX > canvas.width - CHAR_SIZE) targetX = canvas.width - CHAR_SIZE;
                 if (targetY < 0) targetY = 0;
                 if (targetY > canvas.height - CHAR_SIZE) targetY = canvas.height - CHAR_SIZE;
+            }
+
+            // 🏥 [치료 연사 다운그레이딩 최적화 적용]
+            const currentMap = MAPS[sendMapName] || MAPS['town'];
+            const gridC = Math.floor((targetX + CHAR_SIZE/2) / TILE_SIZE);
+            const gridR = Math.floor((targetY + CHAR_SIZE/2) / TILE_SIZE);
+            
+            if (gridR >= 0 && gridR < 5 && gridC >= 0 && gridC < 5) {
+                if (currentMap[gridR][gridC] === 3) {
+                    // 🚨 센터 타일 위에 도착했을 때 '최초 딱 한 번만' 치료 명령 전송 가드 작동
+                    if (!this.hasHealedOnThisTile) {
+                        this.game.network.send({ type: "HEAL_ALL" });
+                        this.hasHealedOnThisTile = true; // 가드 활성화
+                    }
+                } else {
+                    // 센터 타일에서 한 칸이라도 벗어나는 즉시 치료 가드 플래그 해제 (다음 진입을 위해 초기화)
+                    this.hasHealedOnThisTile = false;
+                }
             }
 
             this.game.network.send({
@@ -533,6 +567,22 @@ class PokemonGame {
         document.getElementById('enemy-hp-text').innerText = `HP: ${data.hp}/${data.maxHp}`;
         document.getElementById('enemy-hp-bar').style.width = "100%";
         document.getElementById('enemy-hp-bar').style.backgroundColor = "#00ff00";
+        
+        // 🚨 [UI 동기화 패치]: 전투 돌입하는 즉시, 서버가 동기화해서 보내준 내 포켓몬의 실시간 피 수치를 바탕화면에 각인!
+        if (data.myPokemonHp !== undefined && data.myPokemonMaxHp !== undefined) {
+            const myHpBar = document.getElementById('my-pokemon-hp-bar');
+            const myHpText = document.getElementById('my-pokemon-hp-text');
+            const myRatio = (data.myPokemonHp / data.myPokemonMaxHp) * 100;
+            
+            myHpBar.style.width = `${myRatio}%`;
+            myHpText.innerText = `HP: ${data.myPokemonHp}/${data.myPokemonMaxHp}`;
+            
+            // 체력 바 색상 분기 필터 보정
+            if (myRatio < 30) { myHpBar.style.backgroundColor = "#ff5353"; } 
+            else if (myRatio < 60) { myHpBar.style.backgroundColor = "#ffcb05"; } 
+            else { myHpBar.style.backgroundColor = "#00ff00"; }
+        }
+
         document.getElementById('battle-log').innerText = `앗! 풀숲에서 야생의 [${data.pokemonName}](이)가 튀어나왔다! \n무엇을 할까?`;
         document.getElementById('battle-container').style.display = 'flex';
     }

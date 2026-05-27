@@ -20,17 +20,14 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Random random = new Random();
 
-    // 💡 [메모리 추가] 현재 실시간 1대1 전투가 진행 중인 트레이너 유저들의 배틀 세션 주머니
     private final Map<String, BattleState> activeBattles = new ConcurrentHashMap<>();
 
-    // 💡 OOP 원칙에 맞게 역할이 분리된 전담 서비스 객체들을 주입받습니다.
     @Autowired
     private AuthService authService;
 
     @Autowired
     private MapService mapService;
 
-    // 💡 몬스터볼 포획 성공 시 가방에 포켓몬을 다이렉트로 집어넣기 위해 주입합니다.
     @Autowired
     private CapturedPokemonRepository capturedPokemonRepository;
 
@@ -52,7 +49,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
             String username = (String) session.getAttributes().get("username");
 
-            // 📝 [A] 회원가입 처리 (AuthService 위임)
+            // 📝 [A] 회원가입 처리
             if ("SIGNUP".equals(type)) {
                 String usernameInput = (String) requestData.get("username");
                 String passwordInput = (String) requestData.get("password");
@@ -71,7 +68,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(result)));
             }
 
-            // 🔑 [B] 로그인 처리 (AuthService 위임)
+            // 🔑 [B] 로그인 처리
             else if ("LOGIN".equals(type)) {
                 String usernameInput = (String) requestData.get("username");
                 String passwordInput = (String) requestData.get("password");
@@ -88,7 +85,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
                 session.getAttributes().put("username", usernameInput);
 
-                // 실시간 접속 유저들의 최신 세션 데이터 매핑
                 Map<String, Object> currentPlayers = new HashMap<>();
                 for (WebSocketSession s : sessions.values()) {
                     String activeUser = (String) s.getAttributes().get("username");
@@ -114,11 +110,9 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 sendBroadcastUpdate(usernameInput, player.getX(), player.getY(), initialMap);
             }
 
-            // 🏃‍♂️ [C] 캐릭터 이동 요청 (MapService 물리 연산 검증 -> AuthService 반영)
+            // 🏃‍♂️ [C] 캐릭터 이동 요청 (포켓몬센터 조우 면제 하드 타겟팅 소탕 완료)
             else if ("MOVE".equals(type)) {
                 if (username == null) return;
-
-                // 🛑 [전투 중 이동 블록 가드] 전투 중인 상태라면 무빙 관련 연산을 거부하고 탈출시킵니다.
                 if (activeBattles.containsKey(username)) return;
 
                 int nextX = ((Number) requestData.get("x")).intValue();
@@ -135,27 +129,62 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                     if (canMove) {
                         authService.updatePlayerPosition(username, nextX, nextY, safeClientMap);
 
-                        // 🌾 [추가] 이동 성공 시 발밑 타일 조사 후 포켓몬 조우 계산
-                        String encounteredPokemon = mapService.checkEncounter(nextX, nextY, safeClientMap);
+                        // 🏥 포켓몬센터 타일(3번) 위에 서 있다면 야생몬 조우를 아예 원천 면제
+                        int currentGridC = (int) Math.floor((nextX + 24) / 80);
+                        int currentGridR = (int) Math.floor((nextY + 24) / 80);
+                        boolean isOnCenterTile = false;
 
-                        if (encounteredPokemon != null) {
-                            System.out.println("🌾 [이벤트 발생] 유저 [" + username + "] 풀숲에서 " + encounteredPokemon + " 마주침!");
+                        if ("town".equals(safeClientMap) && currentGridR >= 0 && currentGridR < 5 && currentGridC >= 0 && currentGridC < 5) {
+                            int[][] townMapLayout = {
+                                    {0, 0, 0, 1, 1},
+                                    {1, 1, 0, 1, 0},
+                                    {2, 2, 0, 3, 0},
+                                    {2, 1, 1, 1, 0},
+                                    {0, 0, 0, 1, 0}
+                            };
+                            if (townMapLayout[currentGridR][currentGridC] == 3) {
+                                isOnCenterTile = true;
+                            }
+                        }
 
-                            // 🎲 야생 포켓몬 스펙 랜덤 빌드 (레벨 2~4, HP 14~22 랜덤 부여)
-                            int randomLevel = random.nextInt(3) + 2;
-                            int randomHp = 10 + (randomLevel * 3);
+                        // 센터 타일 밖의 야생 풀숲 무빙일 때만 전투 매칭 가동
+                        if (!isOnCenterTile) {
+                            String encounteredPokemon = mapService.checkEncounter(nextX, nextY, safeClientMap);
 
-                            // ⚔️ [핵심] 유저 아이디와 야생몬 데이터를 매핑하여 실시간 1:1 전투방 개설
-                            activeBattles.put(username, new BattleState(username, encounteredPokemon, randomLevel, randomHp));
+                            if (encounteredPokemon != null) {
+                                System.out.println("🌾 [이벤트 발생] 유저 [" + username + "] 풀숲에서 " + encounteredPokemon + " 마주침!");
 
-                            // 📡 조우한 유저 당사자 소켓에게 전용 특수 배틀 데이터 패킷 전송
-                            Map<String, Object> encounterPacket = new HashMap<>();
-                            encounterPacket.put("type", "WILD_ENCOUNTER");
-                            encounterPacket.put("pokemonName", encounteredPokemon);
-                            encounterPacket.put("level", randomLevel);
-                            encounterPacket.put("hp", randomHp);
-                            encounterPacket.put("maxHp", randomHp);
-                            session.sendMessage(new TextMessage(objectMapper.writeValueAsString(encounterPacket)));
+                                int randomLevel = random.nextInt(3) + 2;
+                                int randomHp = 10 + (randomLevel * 3);
+
+                                activeBattles.put(username, new BattleState(username, encounteredPokemon, randomLevel, randomHp));
+
+                                // 🚨 [체력 바 첫 진입 버그 완전 박멸]:
+                                // 전투가 열리는 이 찰나의 순간, DB에 저장된 내 출전몬의 찐 체력(포켓몬센터에서 치료 완료된 피 수치)을 직접 수사합니다.
+                                int myCurrentHp = 20; // 가방이 비었을 때를 대비한 디폴트 가드 피통 값
+                                int myMaxHp = 20;
+
+                                java.util.List<CapturedPokemon> myPokes = capturedPokemonRepository.findByOwnerId(username);
+                                if (!myPokes.isEmpty()) {
+                                    CapturedPokemon activePoke = myPokes.get(0); // 현재 1선 출전몬
+                                    myCurrentHp = activePoke.getCurrentHp();     // 센터에서 치료 완료된 찐 피
+                                    myMaxHp = activePoke.getMaxHp();
+                                }
+
+                                // 📡 조우 패킷에 내 포켓몬의 실시간 DB 피 상태까지 꽉 채워서 프론트엔드로 사출!
+                                Map<String, Object> encounterPacket = new HashMap<>();
+                                encounterPacket.put("type", "WILD_ENCOUNTER");
+                                encounterPacket.put("pokemonName", encounteredPokemon);
+                                encounterPacket.put("level", randomLevel);
+                                encounterPacket.put("hp", randomHp);
+                                encounterPacket.put("maxHp", randomHp);
+
+                                // 프론트엔드가 첫 조우창을 열 때 찌찌뿌레한 개피가 아닌, 싱싱한 풀피 바를 그리도록 강제 이식
+                                encounterPacket.put("myPokemonHp", myCurrentHp);
+                                encounterPacket.put("myPokemonMaxHp", myMaxHp);
+
+                                session.sendMessage(new TextMessage(objectMapper.writeValueAsString(encounterPacket)));
+                            }
                         }
                     }
                 }
@@ -167,12 +196,11 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 }
             }
 
-            // 🥊 [D] 전투 커맨드 라우터: 공격하기 데미지 주사위 연산
+            // 🥊 [D] 전투 커맨드 라우터: 공격하기
             else if ("BATTLE_ATTACK".equals(type)) {
                 if (username == null || !activeBattles.containsKey(username)) return;
                 BattleState battle = activeBattles.get(username);
 
-                // 1. 내 피카츄의 공격 (4~8 무작위 랜덤 타격)
                 int dmg = random.nextInt(5) + 4;
                 battle.setEnemyCurrentHp(Math.max(0, battle.getEnemyCurrentHp() - dmg));
 
@@ -180,25 +208,21 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 res.put("type", "BATTLE_ROUND_RESULT");
                 res.put("enemyHp", battle.getEnemyCurrentHp());
 
-                // 2. 야생 포켓몬이 격침되었을 경우
                 if (battle.getEnemyCurrentHp() <= 0) {
                     res.put("log", "💥 피카츄의 백만볼트 작렬! (" + dmg + " 데미지!)\n\n🎉 야생의 " + battle.getEnemyName() + "(이)가 쓰러졌다! 전투에서 승리했습니다!");
                     res.put("battleEnded", true);
                     activeBattles.remove(username);
                 }
-                // 3. 야생 포켓몬이 생존하여 반격을 가할 경우 -> 내 포켓몬 DB 피통 깎기!
                 else {
-                    int counterDmg = random.nextInt(3) + 1; // 1~3 데미지 반격
+                    int counterDmg = random.nextInt(3) + 1;
 
-                    // DB에서 내 포켓몬 리스트 중 첫 번째(출전몬)를 꺼내와 체력을 깎습니다.
                     java.util.List<CapturedPokemon> myPokes = capturedPokemonRepository.findByOwnerId(username);
                     if (!myPokes.isEmpty()) {
-                        CapturedPokemon myActivePoke = myPokes.get(0); // 첫 번째 포켓몬 선택
+                        CapturedPokemon myActivePoke = myPokes.get(0);
                         int nextMyHp = Math.max(0, myActivePoke.getCurrentHp() - counterDmg);
                         myActivePoke.setCurrentHp(nextMyHp);
-                        capturedPokemonRepository.saveAndFlush(myActivePoke); // DB에 실시간 저장
+                        capturedPokemonRepository.saveAndFlush(myActivePoke); // 확실한 강제 플러시 동기화
 
-                        // 프론트엔드가 내 체력 바를 갱신할 수 있게 패킷에 실어 보냅니다.
                         res.put("myPokemonHp", nextMyHp);
                         res.put("myPokemonMaxHp", myActivePoke.getMaxHp());
 
@@ -207,7 +231,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                             res.put("battleEnded", true);
                             activeBattles.remove(username);
 
-                            // 🏥 기절 방지 서비스: 테스트 편의를 위해 치료비 0원 즉시 부활(HP 1로 보정)
                             myActivePoke.setCurrentHp(1);
                             capturedPokemonRepository.saveAndFlush(myActivePoke);
                         } else {
@@ -215,7 +238,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                             res.put("battleEnded", false);
                         }
                     } else {
-                        // 혹시 가방에 포켓몬이 없는 예외 상황 방어용
                         res.put("log", "💥 피카츄의 공격! (" + dmg + " 데미지!)\n반격 당했지만 출전 포켓몬을 찾을 수 없습니다.");
                         res.put("battleEnded", false);
                     }
@@ -223,32 +245,30 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
             }
 
-            // 🔴 [E] 전투 커맨드 라우터: 몬스터볼 포획 확률 주사위 및 DB 삽입 연산
+            // 🔴 [E] 몬스터볼 포획
             else if ("BATTLE_CATCH".equals(type)) {
                 if (username == null || !activeBattles.containsKey(username)) return;
                 BattleState battle = activeBattles.get(username);
 
-                // 🎲 포획 연산 공식 기믹: 대상의 잔여 HP 비율이 낮을수록 성공 확률 대폭 보강
                 double hpRatio = (double) battle.getEnemyCurrentHp() / battle.getEnemyMaxHp();
-                double catchChance = 0.30 + (0.50 * (1.0 - hpRatio)); // 기본 30% ~ 개피 상태일 때 최대 80%
+                double catchChance = 0.30 + (0.50 * (1.0 - hpRatio));
 
                 Map<String, Object> res = new HashMap<>();
                 res.put("type", "BATTLE_ROUND_RESULT");
                 res.put("enemyHp", battle.getEnemyCurrentHp());
 
                 if (random.nextDouble() < catchChance) {
-                    // 🎁 [포획 대성공] 트레이너 가방(DB) 테이블에 새로운 포켓몬 엔티티 영속화!
                     CapturedPokemon cp = new CapturedPokemon();
                     cp.setOwnerId(username);
                     cp.setPokemonName(battle.getEnemyName());
                     cp.setLevel(battle.getEnemyLevel());
                     cp.setMaxHp(battle.getEnemyMaxHp());
-                    cp.setCurrentHp(battle.getEnemyMaxHp()); // 잡힌 포켓몬은 풀피 상태로 주입
-                    capturedPokemonRepository.save(cp);
+                    cp.setCurrentHp(battle.getEnemyMaxHp());
+                    capturedPokemonRepository.saveAndFlush(cp); // 즉시 커밋
 
                     res.put("log", "🔴 몬스터볼을 던졌다! 대굴.. 대굴.. 탁!\n\n🎉 성공! 야생의 " + battle.getEnemyName() + "을(를) 안전하게 붙잡았습니다!");
                     res.put("battleEnded", true);
-                    activeBattles.remove(username); // 전투방 삭제
+                    activeBattles.remove(username);
                 } else {
                     res.put("log", "🔴 몬스터볼을 던졌다! 아깝다! 포켓몬이 탈출해서 길길이 날뛰고 있습니다!");
                     res.put("battleEnded", false);
@@ -256,10 +276,10 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
             }
 
-            // 🏃‍♂️ [F] 전투 커맨드 라우터: 도망치기 기믹
+            // 🏃‍♂️ [F] 도망치기
             else if ("BATTLE_RUN".equals(type)) {
                 if (username == null) return;
-                activeBattles.remove(username); // 전투방 정보 제거
+                activeBattles.remove(username);
 
                 Map<String, Object> res = new HashMap<>();
                 res.put("type", "BATTLE_ROUND_RESULT");
@@ -285,11 +305,10 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 }
             }
 
-            // 🎒 [H] 유저 가방 포켓몬 목록 조회 요청 처리
+            // 🎒 [H] 유저 가방 조회
             else if ("GET_BAG".equals(type)) {
                 if (username == null) return;
 
-                // DB에서 해당 주인의 소지 포켓몬 리스트 긁어오기
                 java.util.List<CapturedPokemon> myPokemons = authService.getMyPokemons(username);
 
                 Map<String, Object> bagResponse = new HashMap<>();
@@ -297,6 +316,39 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 bagResponse.put("list", myPokemons);
 
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(bagResponse)));
+            }
+
+            // 🏥 [I] 포켓몬센터 완벽 리부트 제어 (DB 플러시 장착)
+            else if ("HEAL_ALL".equals(type)) {
+                if (username == null) return;
+
+                java.util.List<CapturedPokemon> myPokemons = authService.getMyPokemons(username);
+
+                if (!myPokemons.isEmpty()) {
+                    // 1. 가방 속 모든 포켓몬들의 현재 체력을 최대 체력으로 100% 치유 및 DB 반영
+                    for (CapturedPokemon poke : myPokemons) {
+                        poke.setCurrentHp(poke.getMaxHp());
+                        capturedPokemonRepository.saveAndFlush(poke);
+                    }
+
+                    // 2. 혹시라도 남아있을 교착된 배틀방 메모리 세션 폐기
+                    activeBattles.remove(username);
+
+                    // 3. 🚨 [버그 척결 핵심]: 프론트엔드 배틀 창 타이머를 교란하던 BATTLE_ROUND_RESULT를 영구 퇴출하고
+                    // 배틀 타이머 간섭이 0%인 순수 알림 전용 패킷(CENTER_HEAL_RESULT)으로 사출 변경!
+                    Map<String, Object> healLog = new HashMap<>();
+                    healLog.put("type", "CENTER_HEAL_RESULT");
+                    healLog.put("log", "🏥 딩~ 디디~ 딩~ 딩~ ♪ 전원 완벽하게 풀 HP로 회복되었습니다!");
+                    session.sendMessage(new TextMessage(objectMapper.writeValueAsString(healLog)));
+
+                    // 4. 가방 UI 실시간 풀피 동기화 사출
+                    Map<String, Object> bagResponse = new HashMap<>();
+                    bagResponse.put("type", "BAG_RESULT");
+                    bagResponse.put("list", myPokemons);
+                    session.sendMessage(new TextMessage(objectMapper.writeValueAsString(bagResponse)));
+
+                    System.out.println("🏥 [타이머 꼬임 버그 박멸 완수] 유저 [" + username + "] 청정 힐링 패킷 사출 완료!");
+                }
             }
 
         } catch (Exception e) {
@@ -310,7 +362,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
         String username = (String) session.getAttributes().get("username");
 
         if (username != null) {
-            activeBattles.remove(username); // 로그아웃되거나 튕기면 해당 전투방 잔재 즉시 자동 폐기
+            activeBattles.remove(username);
 
             Map<String, Object> removeData = new HashMap<>();
             removeData.put("type", "REMOVE");
