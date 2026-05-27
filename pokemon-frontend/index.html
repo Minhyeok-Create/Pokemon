@@ -207,13 +207,20 @@
             <!-- 🐹 내 출전 포켓몬 상태창 -->
             <div style="background: rgba(0,0,0,0.4); padding: 8px; border-radius: 8px; margin-bottom: 12px; border-right: 4px solid #ffcb05;">
                 <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 13px;">
-                    <span style="color: #ffcb05;">나의 피카츄</span>
+                    <span id="my-pokemon-name" style="color: #ffcb05;">나의 피카츄</span>
                     <span id="my-pokemon-level" style="color: #aaa;">Lv.5</span>
                 </div>
                 <div style="width: 100%; background: #333; height: 10px; border-radius: 5px; margin-top: 4px; overflow: hidden; border: 1px solid #000;">
                     <div id="my-pokemon-hp-bar" style="width: 100%; background: #00ff00; height: 100%; transition: width 0.3s;"></div>
                 </div>
                 <div style="text-align: right; font-size: 11px; color: #bbb; margin-top: 2px;" id="my-pokemon-hp-text">HP: 20/20</div>
+            </div>
+
+            <div id="battle-change-zone" style="background: rgba(0,0,0,0.5); padding: 8px; border-radius: 8px; margin-bottom: 12px; border: 1px dashed #ffcb05;">
+                <div style="font-size: 11px; color: #ffcb05; font-weight: bold; margin-bottom: 4px; text-align: center;">🎒 출전 포켓몬 교체 대기실 (클릭 시 교체)</div>
+                <div id="battle-pokemon-list" style="display: flex; flex-direction: column; gap: 4px; max-height: 70px; overflow-y: auto;">
+                    <!-- 자바스크립트가 소지한 포켓몬 버튼들을 실시간으로 렌더링할 장소 -->
+                </div>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
