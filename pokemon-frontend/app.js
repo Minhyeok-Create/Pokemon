@@ -3,7 +3,7 @@
 // ==========================================
 const TILE_SIZE = 80;
 const SPEED = 8;
-const CHAR_SIZE = 48; // 비율 고정 아담한 크기
+const CHAR_SIZE = 48;
 
 const MAPS = {
     town: [
@@ -39,10 +39,11 @@ const POKEMON_IMAGE_POOL = {
     "아보": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/23.png",
     "파이리": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/4.png",
     "꼬부기": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/7.png",
-    "이상해씨": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/1.png"
+    "이상해씨": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/1.png",
+    "뮤츠": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/150.png",
+    "루기아": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/249.png"
 };
 
-// 뒷모습 전용 풀 (내 출전 포켓몬용)
 const POKEMON_BACK_IMAGE_POOL = {
     "피카츄": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/25.png",
     "피츄": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/172.png",
@@ -52,7 +53,9 @@ const POKEMON_BACK_IMAGE_POOL = {
     "아보": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/23.png",
     "파이리": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/4.png",
     "꼬부기": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/7.png",
-    "이상해씨": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/1.png"
+    "이상해씨": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/1.png",
+    "뮤츠": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/150.png",
+    "루기아": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/back/249.png"
 };
 
 class NetworkManager {
@@ -113,6 +116,9 @@ class NetworkManager {
             this.game.appendChatMessage(data.id, data.msg);
         }
         else if (data.type === 'WILD_ENCOUNTER') {
+            if (this.game.input && typeof this.game.input.forceStopMoving === 'function') {
+                this.game.input.forceStopMoving();
+            }
             this.game.enterBattle(data);
         }
         else if (data.type === 'BAG_RESULT') {
@@ -314,6 +320,7 @@ class InputHandler {
         this.chatInput = document.getElementById('chat-input');
         this.game = game;
         this.hasHealedOnThisTile = false; 
+        this.activeTouchTimers = []; 
         this.initEvents();
     }
 
@@ -326,11 +333,19 @@ class InputHandler {
             const btn = document.getElementById(btnId); if (!btn) return;
             let moveTimer = null; 
             const startMoving = (e) => {
+                if (this.game.gameState === 'BATTLE') return;
                 e.preventDefault(); this.handleKeyDown({ key: keyName });
-                if (moveTimer === null) moveTimer = setInterval(() => { this.handleKeyDown({ key: keyName }); }, 120); 
+                if (moveTimer === null) {
+                    moveTimer = setInterval(() => { this.handleKeyDown({ key: keyName }); }, 120); 
+                    this.activeTouchTimers.push(moveTimer); 
+                }
             };
             const stopMoving = () => {
-                if (moveTimer !== null) { clearInterval(moveTimer); moveTimer = null; }
+                if (moveTimer !== null) {
+                    clearInterval(moveTimer);
+                    this.activeTouchTimers = this.activeTouchTimers.filter(t => t !== moveTimer);
+                    moveTimer = null;
+                }
                 this.handleKeyUp({ key: keyName }); 
             };
             btn.addEventListener('touchstart', startMoving); btn.addEventListener('touchend', stopMoving);
@@ -339,13 +354,23 @@ class InputHandler {
         bindContinuousTouch('btn-up', 'ArrowUp'); bindContinuousTouch('btn-down', 'ArrowDown'); bindContinuousTouch('btn-left', 'ArrowLeft'); bindContinuousTouch('btn-right', 'ArrowRight');
     }
 
+    forceStopMoving() {
+        console.log("🚨 [하드록 브레이크] 타이머 폭파!");
+        this.activeTouchTimers.forEach(t => clearInterval(t));
+        this.activeTouchTimers = [];
+        if (this.game.myId && this.game.players[this.game.myId]) {
+            this.game.players[this.game.myId].frame = 0;
+            this.game.players[this.game.myId].stepCounter = 0;
+        }
+    }
+
     sendChatMessage() {
         const msg = this.chatInput.value.trim(); if (msg === '') return;
         this.game.network.send({ type: "CHAT", msg: msg }); this.chatInput.value = ''; 
     }
 
     handleKeyDown(e) {
-        if (this.game.gameState === 'BATTLE') return;
+        if (this.game.gameState === 'BATTLE') return; 
         if (!this.game.isLoaded || !this.game.myId || !this.game.players[this.game.myId]) return;
         let myPlayer = this.game.players[this.game.myId];
         let targetX = myPlayer.x; let targetY = myPlayer.y; let sendMapName = this.game.currentMapName; let moved = false;
@@ -397,6 +422,9 @@ class PokemonGame {
     constructor() {
         this.myId = null; this.players = {}; this.isLoaded = false; this.currentMapName = 'town'; this.gameState = 'FIELD';
         this.network = new NetworkManager(this); this.renderer = new GameRenderer(this); this.input = new InputHandler(this);
+        
+        // 🎯 [신설] 현재 등판하여 전투 중인 포켓몬 이름을 명시적으로 기록하는 메모리 상태 변수
+        this.currentActivePokemonName = ""; 
     }
 
     start() {
@@ -421,10 +449,8 @@ class PokemonGame {
 
     enterBattle(data) {
         this.gameState = 'BATTLE'; 
-        const myImgEl = document.getElementById('battle-my-img'); 
-        const enemyImgEl = document.getElementById('battle-enemy-img');
+        const myImgEl = document.getElementById('battle-my-img'); const enemyImgEl = document.getElementById('battle-enemy-img');
         
-        // 🛠️ [조우 시 정밀 슬라이싱 교정]: 야생 포켓몬 이름의 빈칸을 제거하고 매핑 검사
         const cleanedEnemyName = data.pokemonName ? data.pokemonName.trim() : "";
         if (enemyImgEl) {
             enemyImgEl.src = POKEMON_IMAGE_POOL[cleanedEnemyName] || POKEMON_IMAGE_POOL["구구"];
@@ -436,18 +462,16 @@ class PokemonGame {
         document.getElementById('enemy-hp-bar').style.width = "100%";
         document.getElementById('enemy-hp-bar').style.backgroundColor = "#00ff00";
         
-        // 🛠️ 첫 진입 시 현재 출전몬 정보 셋팅 (이름표 동적 하드코딩 탈출)
+        // 조우 시 내 첫 선발 포켓몬의 정보를 기본 세팅
         if (data.myPokemonHp !== undefined && data.myPokemonMaxHp !== undefined) {
-            const myHpBar = document.getElementById('my-pokemon-hp-bar'); 
-            const myHpText = document.getElementById('my-pokemon-hp-text');
+            const myHpBar = document.getElementById('my-pokemon-hp-bar'); const myHpText = document.getElementById('my-pokemon-hp-text');
             const myRatio = (data.myPokemonHp / data.myPokemonMaxHp) * 100;
-            
-            myHpBar.style.width = `${myRatio}%`; 
-            myHpText.innerText = `HP: ${data.myPokemonHp}/${data.myPokemonMaxHp}`;
+            myHpBar.style.width = `${myRatio}%`; myHpText.innerText = `HP: ${data.myPokemonHp}/${data.myPokemonMaxHp}`;
             myHpBar.style.backgroundColor = myRatio < 30 ? "#ff5353" : myRatio < 60 ? "#ffcb05" : "#00ff00";
         }
 
-        // 🚨 [가방 강제 갱신 트리거 가동]: 내 가방 데이터를 받아와 출전몬 이름과 교체실을 최신화합니다.
+        // 🚨 조우 시점에는 아직 어떤 포켓몬이 0번인지 알 수 없으므로 가방 리스트를 호출하되, 이름 추적 상태는 초기화
+        this.currentActivePokemonName = "";
         requestMyBag();
 
         document.getElementById('battle-log').innerText = `앗! 풀숲에서 야생의 [${cleanedEnemyName}](이)가 튀어나왔다! \n무엇을 할까?`;
@@ -456,11 +480,8 @@ class PokemonGame {
 
     exitBattle() { document.getElementById('battle-container').style.display = 'none'; this.gameState = 'FIELD'; }
 
-    // 🎒 유저 가방UI 갱신 + 배틀 출전 포켓몬 이름 동적 덮어쓰기 개설
     updateBagUI(pokemonList) {
-        const bagListDiv = document.getElementById('bag-list'); 
-        if (pokemonList.length === 0) { bagListDiv.innerHTML = "<span style='color:#aaa;'>소지한 포켓몬이 없습니다.</span>"; return; }
-        
+        const bagListDiv = document.getElementById('bag-list'); if (pokemonList.length === 0) { bagListDiv.innerHTML = "<span style='color:#aaa;'>소지한 포켓몬이 없습니다.</span>"; return; }
         let htmlContent = "";
         pokemonList.forEach((poke, index) => {
             htmlContent += `<div style="margin-bottom:6px; padding:6px; border-bottom:1px solid #333; background: rgba(0,0,0,0.15); border-radius: 4px; display: flex; justify-content: space-between;">
@@ -470,28 +491,34 @@ class PokemonGame {
         });
         bagListDiv.innerHTML = htmlContent;
 
-        // 🛠️ [실시간 동기화 마스터 기믹]: 가방의 0번째가 무조건 현재 전투에 출전한 몬스터입니다!
+        // 🚨 [꼬임 버그 해결의 열쇠]: 
+        // 만약 서버가 명시적으로 '누구로 교체해라'라고 명시해주지 않은 첫 조우 시점에만 가방의 0번 인덱스 이름을 가져옵니다.
         if (this.gameState === 'BATTLE' && pokemonList.length > 0) {
-            const currentActivePoke = pokemonList[0];
-            const cleanedActiveName = currentActivePoke.pokemonName.trim();
-            
-            // 1. 배틀 화면의 내 포켓몬 텍스트 명칭을 "나의 피카츄 :" 에서 "나의 구구 :" 처럼 실시간 치환!
-            const myPokeNameEl = document.getElementById('my-pokemon-name');
-            if (myPokeNameEl) {
-                myPokeNameEl.innerText = `나의 ${cleanedActiveName}`;
-            } else {
-                // 엘리먼트 id가 없을 때를 대비해 상단 텍스트 노드 강제 조준 가드
-                const label = document.querySelector('#battle-container div style div span');
-                if (label && label.innerText.includes("나의")) {
-                    label.innerText = `나의 ${cleanedActiveName} :`;
-                }
+            if (!this.currentActivePokemonName) {
+                this.currentActivePokemonName = pokemonList[0].pokemonName.trim();
             }
+            this.syncActivePokemonUI();
+        }
+    }
 
-            // 2. 내 포켓몬 배틀 이미지 뒷모습도 현재 출전한 포켓몬 스킨으로 체인지!
-            const myImgEl = document.getElementById('battle-my-img');
-            if (myImgEl) {
-                myImgEl.src = POKEMON_BACK_IMAGE_POOL[cleanedActiveName] || POKEMON_BACK_IMAGE_POOL["피카츄"];
+    // 🎯 [독립 렌더링 함수]: 가방 순서 리스트와 무관하게, 현재 지정된 포켓몬 이름으로만 스킨을 그립니다!
+    syncActivePokemonUI() {
+        if (!this.currentActivePokemonName) return;
+        const targetName = this.currentActivePokemonName;
+
+        const myPokeNameEl = document.getElementById('my-pokemon-name');
+        if (myPokeNameEl) {
+            myPokeNameEl.innerText = `나의 ${targetName}`;
+        } else {
+            const label = document.querySelector('#battle-container div style div span');
+            if (label && label.innerText.includes("나의")) {
+                label.innerText = `나의 ${targetName} :`;
             }
+        }
+
+        const myImgEl = document.getElementById('battle-my-img');
+        if (myImgEl) {
+            myImgEl.src = POKEMON_BACK_IMAGE_POOL[targetName] || POKEMON_BACK_IMAGE_POOL["피카츄"];
         }
     }
 
@@ -504,8 +531,9 @@ class PokemonGame {
         }
 
         let html = "";
-        pokemonList.forEach((poke, index) => {
-            if (index > 0) {
+        pokemonList.forEach((poke) => {
+            // 🚨 현재 필드에 버젓이 등판해 있는 포켓몬은 대기실 버튼 목록에서 제외합니다!
+            if (poke.pokemonName.trim() !== this.currentActivePokemonName) {
                 const isFainted = poke.currentHp <= 0;
                 html += `<button onclick="requestSwitchPokemon(${poke.uniqueId})" ${isFainted ? 'disabled' : ''} style="width: 100%; text-align: left; padding: 5px; font-size: 11px; font-weight: bold; background: ${isFainted ? '#444' : '#34495e'}; color: ${isFainted ? '#aaa' : '#fff'}; border: 1px solid #2c3e50; border-radius: 4px; cursor: ${isFainted ? 'not-allowed' : 'pointer'}; display: flex; justify-content: space-between;">
                     <span>포켓몬: ${poke.pokemonName} (Lv.${poke.level})</span>
@@ -532,9 +560,16 @@ class PokemonGame {
             myHpBar.style.backgroundColor = myRatio < 30 ? "#ff5353" : myRatio < 60 ? "#ffcb05" : "#00ff00";
         }
 
-        // 🔄 교체 완료 패킷이 인식되면 실시간 가방 재호출을 날려 텍스트와 이미지 스와프 동기화를 즉시 완수!
+        // 🚨 [동기화 마스터 피스]: 교체든 공격이든 서버가 "지금 활성화된 아군 이름은 이거야"라고 던져주면 무조건 그 이름으로 고정시킵니다!
+        if (data.myPokemonName) {
+            this.currentActivePokemonName = data.myPokemonName.trim();
+            this.syncActivePokemonUI();
+        }
+
         if (data.log && data.log.includes("[교체]")) {
-            requestMyBag();
+            this.gameState = 'BATTLE';
+            window.focus();
+            requestMyBag(); // 교체실 목록 동기화 리로드
         }
 
         if (data.battleEnded) { setTimeout(() => { this.exitBattle(); if (typeof requestMyBag === 'function') requestMyBag(); }, 2500); }

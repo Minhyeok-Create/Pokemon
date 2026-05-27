@@ -200,25 +200,49 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
                 java.util.List<CapturedPokemon> myPokes = capturedPokemonRepository.findByOwnerId(username);
                 if (!myPokes.isEmpty()) {
-                    CapturedPokemon myActivePoke = myPokes.get(0);
+
+                    // 🔍 1. 현재 세션에 등록된 출전 포켓몬 ID와 가방 속 진짜 포켓몬 매칭하기
+                    CapturedPokemon myActivePoke = null;
+                    if (battle.getPlayerActivePokemonUniqueId() != null) {
+                        for (CapturedPokemon poke : myPokes) {
+                            if (poke.getUniqueId().equals(battle.getPlayerActivePokemonUniqueId())) {
+                                myActivePoke = poke;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 🔍 2. 만약 첫 턴이라서 출전 기록이 없다면? 가방의 0번째 녀석을 선발 투수로 자동 등록!
+                    if (myActivePoke == null) {
+                        myActivePoke = myPokes.get(0);
+                        battle.setPlayerActivePokemonUniqueId(myActivePoke.getUniqueId());
+                    }
+
                     String activePokeName = myActivePoke.getPokemonName().trim();
 
+                    // 🛑 기절한 상태라면 공격 불가능 가드
                     if (myActivePoke.getCurrentHp() <= 0) {
-                        res.put("log", "❌ " + activePokeName + "은(는) 기절하여 싸울 수 없습니다! 오른쪽 아래에서 교체할 포켓몬을 고르세요.");
+                        res.put("log", "❌ " + activePokeName + "은(는) 기절하여 싸울 수 없습니다! 오른쪽 아래 대기실에서 교체할 포켓몬을 고르세요.");
                         res.put("battleEnded", false);
                         session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
                         return;
                     }
 
+                    // ⚔️ 아군 선제 공격 계산
                     int dmg = random.nextInt(5) + 4;
                     battle.setEnemyCurrentHp(Math.max(0, battle.getEnemyCurrentHp() - dmg));
                     res.put("enemyHp", battle.getEnemyCurrentHp());
 
+                    // 🔥 [중요]: 공격을 수행한 포켓몬의 이름을 명시하여 프론트엔드가 엉뚱한 스킨으로 롤백하는 걸 원천 차단!
+                    res.put("myPokemonName", activePokeName);
+
+                    // 🏆 야생 포켓몬이 쓰러진 경우 (전투 승리)
                     if (battle.getEnemyCurrentHp() <= 0) {
                         res.put("log", "💥 " + activePokeName + "의 몸통박치기 공격! (" + dmg + " 데미지!)\n\n🎉 야생의 " + battle.getEnemyName() + "이(가) 쓰러졌다! 승리했습니다!");
                         res.put("battleEnded", true);
                         activeBattles.remove(username);
                     }
+                    // 🔄 야생 포켓몬이 살아남아 반격하는 경우
                     else {
                         int counterDmg = random.nextInt(3) + 1;
                         int nextMyHp = Math.max(0, myActivePoke.getCurrentHp() - counterDmg);
@@ -229,8 +253,8 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         res.put("myPokemonHp", nextMyHp);
                         res.put("myPokemonMaxHp", myActivePoke.getMaxHp());
 
+                        // 💀 반격을 맞고 내 포켓몬이 기절한 경우
                         if (nextMyHp <= 0) {
-                            // 가방 속 모든 포켓몬 생사 전수 조사
                             boolean hasAlivePokemon = false;
                             for (CapturedPokemon poke : myPokes) {
                                 if (poke.getCurrentHp() > 0) {
@@ -243,42 +267,114 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                                 res.put("log", "💥 " + activePokeName + "의 공격! (" + dmg + " 데미지!)\n🏃‍♂️ 야생의 " + battle.getEnemyName() + "의 반격! (" + counterDmg + " 피해!)\n\n💀 " + activePokeName + "이(가) 기절했습니다... 교체할 다른 포켓몬을 고르세요!");
                                 res.put("battleEnded", false);
                             } else {
-                                // 💀 [전멸 발생 및 응급 이송 시퀀스 가동]
-                                res.put("log", "💥 " + activePokeName + "의 공격! (" + dmg + " 데미지!)\n🏃‍♂️ 야생의 " + battle.getEnemyName() + "의 반격! (" + counterDmg + " 피해!)\n\n💀 앗!... 모든 포켓몬이 기절했습니다!\n🏥 눈앞이 깜깜해졌다! 당신은 급히 마을 포켓몬센터로 이송되었습니다! (소지 포켓몬 전원 완치)");
+                                // 🏥 보유 포켓몬이 전멸한 경우 -> 포켓몬센터 강제 이송
+                                res.put("log", "💥 " + activePokeName + "의 공격! (" + dmg + " 데미지!)\n🏃‍♂️ 야생의 " + battle.getEnemyName() + "의 반격! (" + counterDmg + " 피해!)\n\n💀 모든 포켓몬이 기절했습니다!\n🏥 눈앞이 깜깜해졌다! 당신은 급히 마을 포켓몬센터로 이송되었습니다!");
                                 res.put("battleEnded", true);
-                                activeBattles.remove(username); // 전투 세션 폐기
+                                activeBattles.remove(username);
 
-                                // 1. 텔레포트: 유저의 위치를 'town' 맵의 포켓몬센터 치료 타일(X=240, Y=160)로 강제 조정 및 DB 커밋
                                 authService.updatePlayerPosition(username, 240, 160, "town");
-
-                                // 2. 자동 치료: 이송된 기념으로 소지한 모든 포켓몬의 체력을 100% 풀피로 원격 완치 처리
                                 for (CapturedPokemon poke : myPokes) {
                                     poke.setCurrentHp(poke.getMaxHp());
                                     capturedPokemonRepository.saveAndFlush(poke);
                                 }
-
-                                // 3. 실시간 가방 UI 리스트 동기화 패킷 사출
-                                Map<String, Object> bagResponse = new HashMap<>();
-                                bagResponse.put("type", "BAG_RESULT");
-                                bagResponse.put("list", myPokes);
-                                session.sendMessage(new TextMessage(objectMapper.writeValueAsString(bagResponse)));
-
-                                // 4. 실시간 전체 맵 브로드캐스팅 사출 (다른 유저들 화면에도 내 캐릭터가 센터로 순간이동한 것을 보여줌)
                                 sendBroadcastUpdate(username, 240, 160, "town");
                             }
                         } else {
+                            // 🏃 정상적인 교전 지속 로그
                             String[] skills = {"전광석화", "몸통박치기", "할퀴기"};
-                            String randomSkill = skills[random.nextInt(skills.length)];
-                            res.put("log", "💥 " + activePokeName + "의 " + randomSkill + "! (" + dmg + " 데미지!)\n🏃‍♂️ 야생의 " + battle.getEnemyName() + "의 반격! (" + counterDmg + " 피해!)");
+                            res.put("log", "💥 " + activePokeName + "의 " + skills[random.nextInt(skills.length)] + "! (" + dmg + " 데미지!)\n🏃‍♂️ 야생의 " + battle.getEnemyName() + "의 반격! (" + counterDmg + " 피해!)");
                             res.put("battleEnded", false);
                         }
                     }
-                } else {
-                    res.put("log", "❌ 전투할 포켓몬이 가방에 없습니다.");
-                    res.put("battleEnded", true);
-                    activeBattles.remove(username);
                 }
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
+            }
+
+            // 🔄 [J] 전투 커맨드: 출전 포켓몬 실시간 스위칭 (🚨 BattleState 고유 ID 마킹 교체 방식)
+            else if ("BATTLE_SWITCH".equals(type)) {
+                if (username == null || !activeBattles.containsKey(username)) return;
+                BattleState battle = activeBattles.get(username);
+
+                long targetUniqueId = ((Number) requestData.get("pokemonId")).longValue();
+                java.util.List<CapturedPokemon> myPokes = capturedPokemonRepository.findByOwnerId(username);
+
+                if (!myPokes.isEmpty()) {
+                    CapturedPokemon targetPoke = null;
+                    for (CapturedPokemon poke : myPokes) {
+                        if (poke.getUniqueId() == targetUniqueId) {
+                            targetPoke = poke;
+                            break;
+                        }
+                    }
+
+                    Map<String, Object> res = new HashMap<>();
+                    res.put("type", "BATTLE_ROUND_RESULT");
+                    res.put("enemyHp", battle.getEnemyCurrentHp());
+
+                    if (targetPoke != null && targetPoke.getCurrentHp() <= 0) {
+                        res.put("log", "❌ [경고] 기절하여 의식을 잃은 " + targetPoke.getPokemonName() + "은(는) 필드에 나설 수 없습니다!");
+                        res.put("battleEnded", false);
+                        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
+                        return;
+                    }
+
+                    // 🔍 현재 필드에 소환되어 있던 포켓몬 수색하기
+                    CapturedPokemon currentActivePoke = null;
+                    if (battle.getPlayerActivePokemonUniqueId() != null) {
+                        for (CapturedPokemon poke : myPokes) {
+                            if (poke.getUniqueId().equals(battle.getPlayerActivePokemonUniqueId())) {
+                                currentActivePoke = poke;
+                                break;
+                            }
+                        }
+                    }
+                    if (currentActivePoke == null) currentActivePoke = myPokes.get(0);
+
+                    if (targetPoke != null && !targetPoke.getUniqueId().equals(currentActivePoke.getUniqueId())) {
+                        String oldName = currentActivePoke.getPokemonName().trim();
+                        String newName = targetPoke.getPokemonName().trim();
+
+                        // 🚨 [가장 중요]: 교체가 완벽히 성공했으므로 BattleState 세션에 새 출전몬 고유 ID 낙인 찍기!
+                        battle.setPlayerActivePokemonUniqueId(targetPoke.getUniqueId());
+
+                        if (currentActivePoke.getCurrentHp() <= 0) {
+                            res.put("myPokemonName", newName);
+                            res.put("myPokemonHp", targetPoke.getCurrentHp());
+                            res.put("myPokemonMaxHp", targetPoke.getMaxHp());
+                            res.put("log", "💀 기절한 " + oldName + " 대신...\n✨ 가라, " + newName + "!!! 전장으로 안전 투입!");
+                            res.put("battleEnded", false);
+                        } else {
+                            // 선발이 살아있는 상태에서 교체하면 야생몬이 등판한 포켓몬을 기습 타격!
+                            int counterDmg = random.nextInt(3) + 1;
+                            int finalNewHp = Math.max(0, targetPoke.getCurrentHp() - counterDmg);
+                            targetPoke.setCurrentHp(finalNewHp);
+                            capturedPokemonRepository.saveAndFlush(targetPoke);
+
+                            res.put("myPokemonName", newName);
+                            res.put("myPokemonHp", finalNewHp);
+                            res.put("myPokemonMaxHp", targetPoke.getMaxHp());
+
+                            if (finalNewHp <= 0) {
+                                res.put("log", "🔄 " + oldName + " 대신 " + newName + "이(가) 등판했으나 기습 공격! (" + counterDmg + " 피해!)\n💀 앗! " + newName + "이(가) 나오자마자 기절해 버렸습니다!");
+                                res.put("battleEnded", false);
+                            } else {
+                                res.put("log", "🔄 기습을 견뎌내고 " + oldName + " 복귀!\n✨ 가라, " + newName + "!!! 등판 완료!");
+                                res.put("battleEnded", false);
+                            }
+                        }
+                    } else {
+                        res.put("log", "❌ 이미 전장에 출전 중인 포켓몬입니다!");
+                        res.put("battleEnded", false);
+                    }
+
+                    // 가방 정렬 순서 안 맞추고 원본 그대로 안전 사출 (어차피 프론트는 이름 기반 매핑이라 안 꼬임)
+                    Map<String, Object> bagResponse = new HashMap<>();
+                    bagResponse.put("type", "BAG_RESULT");
+                    bagResponse.put("list", myPokes);
+                    session.sendMessage(new TextMessage(objectMapper.writeValueAsString(bagResponse)));
+
+                    session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
+                }
             }
 
             // 🔴 [E] 몬스터볼 포획
@@ -358,75 +454,35 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                     if (targetPoke != null && targetIndex > 0) {
                         CapturedPokemon currentActivePoke = myPokes.get(0);
                         String oldName = currentActivePoke.getPokemonName().trim();
+                        String newName = targetPoke.getPokemonName().trim();
 
-                        // ✨ [핵심 해결 기믹]: 현재 최전선 0번 포켓몬이 이미 기절해 있는지 여부에 따라 분기 처리!
+                        // 💡 [핵심 연산]: DB 삭제/생성을 하지 않고, 리스트 상에서 위치(Swap)만 칼같이 바꾼 뒤 저장합니다!
+                        myPokes.set(0, targetPoke);
+                        myPokes.set(targetIndex, currentActivePoke);
+
                         if (currentActivePoke.getCurrentHp() <= 0) {
-                            // 💡 이미 기절해 있다면 선제 피격 공격 단계를 완벽히 생략하고 즉시 안전 하이패스 스와프 진행!
-                            capturedPokemonRepository.delete(currentActivePoke);
-                            capturedPokemonRepository.delete(targetPoke);
-                            capturedPokemonRepository.flush();
-
-                            CapturedPokemon newFirst = new CapturedPokemon();
-                            newFirst.setOwnerId(username);
-                            newFirst.setPokemonName(targetPoke.getPokemonName());
-                            newFirst.setLevel(targetPoke.getLevel());
-                            newFirst.setMaxHp(targetPoke.getMaxHp());
-                            newFirst.setCurrentHp(targetPoke.getCurrentHp());
-                            capturedPokemonRepository.saveAndFlush(newFirst);
-
-                            CapturedPokemon newSecond = new CapturedPokemon();
-                            newSecond.setOwnerId(username);
-                            newSecond.setPokemonName(currentActivePoke.getPokemonName());
-                            newSecond.setLevel(currentActivePoke.getLevel());
-                            newSecond.setMaxHp(currentActivePoke.getMaxHp());
-                            newSecond.setCurrentHp(currentActivePoke.getCurrentHp());
-                            capturedPokemonRepository.saveAndFlush(newSecond);
-
-                            myPokes = capturedPokemonRepository.findByOwnerId(username);
-
-                            res.put("myPokemonHp", newFirst.getCurrentHp());
-                            res.put("myPokemonMaxHp", newFirst.getMaxHp());
-                            res.put("log", "💀 기절한 " + oldName + " 대신...\n✨ 가라, " + newFirst.getPokemonName() + "!!! 전장으로 구원 투입!");
+                            // 선발이 이미 기절 상태였다면 기습 없이 프리패스 교체
+                            res.put("myPokemonName", newName); // 🔥 프론트엔드가 즉시 스킨을 바꿀 수 있게 명시!
+                            res.put("myPokemonHp", targetPoke.getCurrentHp());
+                            res.put("myPokemonMaxHp", targetPoke.getMaxHp());
+                            res.put("log", "💀 기절한 " + oldName + " 대신...\n✨ 가라, " + newName + "!!! 전장으로 안전 투입!");
                             res.put("battleEnded", false);
-
                         } else {
-                            // 💡 살아있는 상태에서의 일반 전략적 교체는 기존처럼 기습 피격 계산 실행
+                            // 살아있는 상태의 교체는 야생몬 기습 타격 가동 (교체되어 새로 나온 포켓몬이 맞음)
                             int counterDmg = random.nextInt(3) + 1;
-                            int finalOldHp = Math.max(0, currentActivePoke.getCurrentHp() - counterDmg);
-                            currentActivePoke.setCurrentHp(finalOldHp);
-                            capturedPokemonRepository.saveAndFlush(currentActivePoke);
+                            int finalNewHp = Math.max(0, targetPoke.getCurrentHp() - counterDmg);
+                            targetPoke.setCurrentHp(finalNewHp);
+                            capturedPokemonRepository.saveAndFlush(targetPoke);
 
-                            if (finalOldHp <= 0) {
-                                res.put("log", "🔄 " + oldName + "을(를) 불러들이려 했으나 기습 공격! (" + counterDmg + " 피해!)\n💀 앗! " + oldName + "이(가) 들어가기 전에 기절해 버렸습니다! 다시 다른 포켓몬을 선택해 주세요.");
-                                res.put("myPokemonHp", 0);
-                                res.put("myPokemonMaxHp", currentActivePoke.getMaxHp());
+                            res.put("myPokemonName", newName); // 🔥 기습을 맞더라도 나간 녀석은 새로운 녀석임!
+                            res.put("myPokemonHp", finalNewHp);
+                            res.put("myPokemonMaxHp", targetPoke.getMaxHp());
+
+                            if (finalNewHp <= 0) {
+                                res.put("log", "🔄 " + oldName + " 대신 " + newName + "이(가) 등판했으나 기습 공격! (" + counterDmg + " 피해!)\n💀 앗! " + newName + "이(가) 나오자마자 기절해 버렸습니다! 다시 다른 포켓몬을 선택해 주세요.");
                                 res.put("battleEnded", false);
                             } else {
-                                capturedPokemonRepository.delete(currentActivePoke);
-                                capturedPokemonRepository.delete(targetPoke);
-                                capturedPokemonRepository.flush();
-
-                                CapturedPokemon newFirst = new CapturedPokemon();
-                                newFirst.setOwnerId(username);
-                                newFirst.setPokemonName(targetPoke.getPokemonName());
-                                newFirst.setLevel(targetPoke.getLevel());
-                                newFirst.setMaxHp(targetPoke.getMaxHp());
-                                newFirst.setCurrentHp(targetPoke.getCurrentHp());
-                                capturedPokemonRepository.saveAndFlush(newFirst);
-
-                                CapturedPokemon newSecond = new CapturedPokemon();
-                                newSecond.setOwnerId(username);
-                                newSecond.setPokemonName(currentActivePoke.getPokemonName());
-                                newSecond.setLevel(currentActivePoke.getLevel());
-                                newSecond.setMaxHp(currentActivePoke.getMaxHp());
-                                newSecond.setCurrentHp(currentActivePoke.getCurrentHp());
-                                capturedPokemonRepository.saveAndFlush(newSecond);
-
-                                myPokes = capturedPokemonRepository.findByOwnerId(username);
-
-                                res.put("myPokemonHp", newFirst.getCurrentHp());
-                                res.put("myPokemonMaxHp", newFirst.getMaxHp());
-                                res.put("log", "🔄 기습을 견뎌내고 " + oldName + " 복귀!\n✨ 가라, " + newFirst.getPokemonName() + "!!! 등판 완료!");
+                                res.put("log", "🔄 기습을 견뎌내고 " + oldName + " 복귀!\n✨ 가라, " + newName + "!!! 등판 완료!");
                                 res.put("battleEnded", false);
                             }
                         }
@@ -435,12 +491,14 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         res.put("battleEnded", false);
                     }
 
-                    session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
-
+                    // 🚨 [동기화 꿀팁]: 순서가 완벽히 스왑된 가방 데이터(BAG_RESULT) 패킷을 '전투 결과보다 먼저' 사출하여 프론트의 메모리를 선행 세팅합니다!
                     Map<String, Object> bagResponse = new HashMap<>();
                     bagResponse.put("type", "BAG_RESULT");
                     bagResponse.put("list", myPokes);
                     session.sendMessage(new TextMessage(objectMapper.writeValueAsString(bagResponse)));
+
+                    // 그 후 배틀 라운드 결과를 사출합니다.
+                    session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
                 }
             }
 
