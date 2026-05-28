@@ -5,6 +5,8 @@
 
 <br>
 
+## 배포 서버 URL : https://pokemon-six-smoky.vercel.app/
+
 ## Tech Stacks (기술 스택)
 * **Backend:** Java 17, Spring Boot, Spring Webflux (WebSocket Subsystem), Spring Data JPA
 * **Frontend:** Vanilla JavaScript, HTML5 Canvas API, CSS3
