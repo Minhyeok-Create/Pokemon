@@ -23,7 +23,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     // 실시간 전투 세션 관리 메모리 주머니
     private final Map<String, BattleState> activeBattles = new ConcurrentHashMap<>();
 
-    // ⚔️ [PvP 메모리 주머니]: 실시간 유저 대인전 세션 및 방 점유 추적용 고속 보관소
+    // [PvP 메모리]: 실시간 유저 대인전 세션 및 방 점유 추적용 보관소
     private final Map<String, PvPState> activePvPMatches = new ConcurrentHashMap<>(); // RoomId -> PvPState
     private final Map<String, String> userToRoomMap = new ConcurrentHashMap<>();     // Username -> RoomId
 
@@ -39,13 +39,13 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         sessions.put(session.getId(), session);
-        System.out.println("⚡ [네트워크 연결] 세션 ID: " + session.getId());
+        System.out.println(" [네트워크 연결] 세션 ID: " + session.getId());
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         String payload = message.getPayload();
-        System.out.println("\n📥 [수신] -> " + payload);
+        System.out.println("\n [수신] -> " + payload);
 
         try {
             Map<String, Object> requestData = objectMapper.readValue(payload, Map.class);
@@ -163,8 +163,8 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                                 // 👑 [기믹 5 적용] 초전설 보스 격상 명세 (뮤츠, 루기아, 칠색조 대격변 레이드 스펙 사출)
                                 String checkName = encounteredPokemon.trim();
                                 if ("뮤츠".equals(checkName) || "루기아".equals(checkName) || "칠색조".equals(checkName)) {
-                                    finalLevel = random.nextInt(6) + 15; // 보스다운 위엄: Lv.15 ~ Lv.20
-                                    finalHp = 100 + (finalLevel * 2);    // 엄청난 통뼈 피통 레이드화: HP 130 ~ 140 돌파
+                                    finalLevel = random.nextInt(6) + 15; // 보스: Lv.15 ~ Lv.20
+                                    finalHp = 100 + (finalLevel * 2);    //  피통 레이드화: HP 130 ~ 140
                                     System.out.println("👑 [초전설 레이드 보스 강림!] " + checkName + " Lv." + finalLevel + " (HP: " + finalHp + ")");
                                 } else {
                                     // 일반 야생 포켓몬 스펙

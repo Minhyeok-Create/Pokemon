@@ -8,8 +8,8 @@ import lombok.Setter;
 @Setter
 public class PvPState {
     private String roomId;
-    private String p1Username; // 도전장을 보낸 트레이너 (신청자)
-    private String p2Username; // 도전장을 받은 트레이너 (피신청자)
+    private String p1Username; //  신청자
+    private String p2Username; //  피신청자
 
     private WebSocketSession p1Session;
     private WebSocketSession p2Session;

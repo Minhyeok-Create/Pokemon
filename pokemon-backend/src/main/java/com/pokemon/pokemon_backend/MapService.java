@@ -36,7 +36,7 @@ public class MapService {
     private final int TILE_SIZE = 80;
     private final Random random = new Random();
 
-    // 🦖 등급별 세부 몬스터 도감 리스트
+    // 등급별 세부 몬스터 도감 리스트
     private final String[] commonPool = {"구구", "꼬렛", "캐터피", "아보", "피츄", "모래두지", "뚜벅초", "발챙이", "디그다", "주뱃"};
     private final String[] rarePool = {"피카츄", "파이리", "꼬부기", "이상해씨", "이브이", "가디", "고스트", "롱스톤"};
     private final String[] mysticPool = {"미뇽", "잠만보", "켄타로스", "라프라스"};
@@ -59,8 +59,8 @@ public class MapService {
     }
 
     /**
-     * 🌾 [서식지 격리형 가중치 엔진]:
-     * 어떤 맵에서 수풀을 밟았냐에 따라 출현하는 몬스터의 등급 한계선을 엄격하게 제어합니다!
+     * [서식지 격리형 가중치]:
+     * 어떤 맵에서 수풀을 밟았냐에 따라 출현하는 몬스터의 등급 한계 제어
      */
     public String checkEncounter(int currentX, int currentY, String mapName) {
         int tileX = (currentX + 32) / TILE_SIZE;
@@ -78,7 +78,7 @@ public class MapService {
 
                 int gradeDice = random.nextInt(10000); // 만분율 주사위
 
-                // 🌋 [용의 굴 던전] 서식지: 레어(75%), 환상(20%), 초전설(5% - 0.1%에서 대폭 상향!)
+                // [용의 굴 던전] 서식지: 레어(75%), 환상(20%), 초전설(5% - 0.1%에서 대폭 상향!)
                 if ("dungeon".equalsIgnoreCase(mapName)) {
                     if (gradeDice < 500) { // 5% 확률로 초전설 보스 출현! (500/10000)
                         return legendaryPool[random.nextInt(legendaryPool.length)];
@@ -89,7 +89,7 @@ public class MapService {
                     }
                 }
 
-                // 🌾 [들판 맵] 서식지: 일반(80%), 레어(20%)
+                // [들판 맵] 서식지: 일반(80%), 레어(20%)
                 else if ("field".equalsIgnoreCase(mapName)) {
                     if (gradeDice < 2000) {
                         return rarePool[random.nextInt(rarePool.length)];
@@ -98,7 +98,7 @@ public class MapService {
                     }
                 }
 
-                // 🏡 [마을 맵] 서식지: 오직 안전하고 귀여운 일반 등급(100%)만 출현!
+                // [마을 맵] 서식지: 일반 등급
                 else {
                     return commonPool[random.nextInt(commonPool.length)];
                 }
