@@ -340,31 +340,44 @@ class InputHandler {
         if (key === 'ArrowLeft' || key === 'left')   { targetX -= SPEED; moved = true; myPlayer.direction = 'left'; }
         if (key === 'ArrowRight' || key === 'right') { targetX += SPEED; moved = true; myPlayer.direction = 'right'; }
 
-        if (moved) {
+       if (moved) {
             myPlayer.stepCounter++;
             if (myPlayer.stepCounter >= 3) { myPlayer.frame = (myPlayer.frame + 1) % 4; myPlayer.stepCounter = 0; }
             const canvas = this.game.renderer.canvas;
             
+            let portalTriggered = false; // 🚨 포탈 이동 감지 플래그
+
             if (this.game.currentMapName === 'town' && targetX > canvas.width - CHAR_SIZE) { 
-                sendMapName = 'field'; targetX = 40; 
+                sendMapName = 'field'; targetX = 40; portalTriggered = true;
             }
             else if (this.game.currentMapName === 'field' && targetX < 0) { 
-                sendMapName = 'town'; targetX = canvas.width - CHAR_SIZE - 40; 
+                sendMapName = 'town'; targetX = canvas.width - CHAR_SIZE - 40; portalTriggered = true;
             }
             else if (this.game.currentMapName === 'field' && targetX > canvas.width - CHAR_SIZE) {
-                sendMapName = 'dungeon'; targetX = 40; targetY = 160; 
+                sendMapName = 'dungeon'; targetX = 40; targetY = 160; portalTriggered = true;
             }
             else if (this.game.currentMapName === 'dungeon' && targetX < 0) {
-                sendMapName = 'field'; targetX = canvas.width - CHAR_SIZE - 40;
+                sendMapName = 'field'; targetX = canvas.width - CHAR_SIZE - 40; portalTriggered = true;
             }
             else {
                 if (targetX < 0) targetX = 0; if (targetX > canvas.width - CHAR_SIZE) targetX = canvas.width - CHAR_SIZE;
                 if (targetY < 0) targetY = 0; if (targetY > canvas.height - CHAR_SIZE) targetY = canvas.height - CHAR_SIZE;
             }
 
-            // 내 캐릭터의 이동 목적지 보간 세팅 동기화
-            myPlayer.targetX = targetX;
-            myPlayer.targetY = targetY;
+            // 🚨 [수리 포인트 2]: 포탈을 타고 대륙 이동이 일어난 순간에는 보간 버퍼와 실제 좌표를 칼같이 일치시킵니다.
+            if (portalTriggered) {
+                myPlayer.x = targetX;
+                myPlayer.y = targetY;
+                myPlayer.targetX = targetX;
+                myPlayer.targetY = targetY;
+                this.game.currentMapName = sendMapName; // 맵 컨텍스트 즉시 선행 반영
+            } else {
+                // 일반 이동일 때는 목적지만 업데이트
+                myPlayer.x = targetX;
+                myPlayer.y = targetY;
+                myPlayer.targetX = targetX;
+                myPlayer.targetY = targetY;
+            }
 
             const currentMap = MAPS[sendMapName] || MAPS['town'];
             const gridC = Math.floor((targetX + CHAR_SIZE/2) / TILE_SIZE); const gridR = Math.floor((targetY + CHAR_SIZE/2) / TILE_SIZE);
@@ -405,20 +418,25 @@ class PokemonGame {
         this.isLoaded = true; this.loop();
     }
 
-    // 🌟 [성능 극대화 리모델링]: 매 프레임마다 목적지로 스무스하게 보간 연산 추적하는 메인 루프 개조
+
     loop() { 
-        // 캔버스 드로우 전, 접속 중인 모든 타 유저의 좌표를 보간율(0.2)로 좁혀가며 미끄러지듯 연산
         for (let id in this.players) {
             const p = this.players[id];
             
-            // 목적지 좌표 버퍼가 누락되었다면 현재 좌표로 안전 보정
+            //  [내 캐릭터는 클라이언트 예측 무빙이므로 보간 연산에서 제외
+            if (id === this.myId) {
+                // 내 캐릭터는 목적지 좌표 버퍼를 실제 좌표와 실시간 동기화만 시켜둡니다.
+                p.targetX = p.x;
+                p.targetY = p.y;
+                continue; 
+            }
+            
             if (p.targetX === undefined) p.targetX = p.x;
             if (p.targetY === undefined) p.targetY = p.y;
             
-            // 💡 선형 보간법 수식: 현재위치 = 현재위치 + (목적지 - 현재위치) * 감쇠율
-            // 감쇠율 0.20은 배포 서버의 100~200ms 레이턴시 지연을 가장 부드러운 스케이트 무빙으로 연출합니다.
-            p.x += (p.targetX - p.x) * 0.20;
-            p.y += (p.targetY - p.y) * 0.20;
+            // 타 유저 캐릭터만 이동 보정 (속도 살짝 상향 0.20 -> 0.25)
+            p.x += (p.targetX - p.x) * 0.25;
+            p.y += (p.targetY - p.y) * 0.25;
         }
 
         this.renderer.render(); 

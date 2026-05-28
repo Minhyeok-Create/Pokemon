@@ -39,13 +39,13 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         sessions.put(session.getId(), session);
-        System.out.println(" [네트워크 연결] 세션 ID: " + session.getId());
+        System.out.println("⚡ [네트워크 연결] 세션 ID: " + session.getId());
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         String payload = message.getPayload();
-        System.out.println("\n [수신] -> " + payload);
+        System.out.println("\n📥 [수신] -> " + payload);
 
         try {
             Map<String, Object> requestData = objectMapper.readValue(payload, Map.class);
@@ -115,7 +115,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 sendBroadcastUpdate(usernameInput, player.getX(), player.getY(), initialMap);
             }
 
-            // 🏃‍♂️ [C] 캐릭터 이동 요청 (🚨 5. 전설의 포켓몬 레벨 및 공격력/체력 레이드 격상 기믹 도킹 완료)
+            // 🏃‍♂️ [C] 캐릭터 이동 요청 (🚨 미스틱 등급 야생 조우 스펙 격상 연동 완료)
             else if ("MOVE".equals(type)) {
                 if (username == null) return;
                 if (activeBattles.containsKey(username) || userToRoomMap.containsKey(username)) return;
@@ -160,14 +160,18 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                                 int finalLevel;
                                 int finalHp;
 
-                                // 👑 [기믹 5 적용] 초전설 보스 격상 명세 (뮤츠, 루기아, 칠색조 대격변 레이드 스펙 사출)
                                 String checkName = encounteredPokemon.trim();
-                                if ("뮤츠".equals(checkName) || "루기아".equals(checkName) || "칠색조".equals(checkName)) {
-                                    finalLevel = random.nextInt(6) + 15; // 보스: Lv.15 ~ Lv.20
-                                    finalHp = 100 + (finalLevel * 2);    //  피통 레이드화: HP 130 ~ 140
-                                    System.out.println("👑 [초전설 레이드 보스 강림!] " + checkName + " Lv." + finalLevel + " (HP: " + finalHp + ")");
+                                if (isLegendaryOrEpic(checkName)) {
+                                    finalLevel = random.nextInt(6) + 15; // 초전설 보스: Lv.15 ~ Lv.20
+                                    finalHp = 100 + (finalLevel * 2);    // 레이드 피통: HP 130 ~ 140
+                                    System.out.println("👑 [초전설/준전설 레이드 보스 강림!] " + checkName + " Lv." + finalLevel + " (HP: " + finalHp + ")");
+                                }
+                                // ✨ [미스틱 기믹 적용]: 미스틱종 야생 조우 시 에이스급 네임드 스펙 격상 사출
+                                else if (isMystic(checkName)) {
+                                    finalLevel = random.nextInt(5) + 8;  // 미스틱 에이스: Lv.8 ~ Lv.12
+                                    finalHp = 50 + (finalLevel * 3);     // 탄탄한 피통: HP 74 ~ 86
+                                    System.out.println("💎 [미스틱 에이스 강림!] " + checkName + " Lv." + finalLevel + " (HP: " + finalHp + ")");
                                 } else {
-                                    // 일반 야생 포켓몬 스펙
                                     finalLevel = random.nextInt(3) + 2;
                                     finalHp = 10 + (finalLevel * 3);
                                 }
@@ -206,11 +210,10 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 }
             }
 
-            // 🥊 [D] 전투 커맨드: 공격하기 (🚨 3. 레벨 공격력 수식 비례 스케일링 & 4. 속성 기술 및 상성 배율 완벽 융합)
+            // 🥊 [D] 전투 커맨드: 공격하기 (🚨 미스틱 등급 데미지 및 2% 치명타 보정 주입 완료)
             else if ("BATTLE_ATTACK".equals(type)) {
                 if (username == null) return;
 
-                // ⚔️ [분기 1]: 실시간 유저 간 대인전(PvP) 공격 커맨드 정산 구역
                 if (userToRoomMap.containsKey(username)) {
                     String roomId = userToRoomMap.get(username);
                     PvPState pvp = activePvPMatches.get(roomId);
@@ -223,7 +226,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                     return;
                 }
 
-                // 🌾 [분기 2]: 기존 독립 야생 포켓몬 배틀 공격 정산 구역
                 if (!activeBattles.containsKey(username)) return;
                 BattleState battle = activeBattles.get(username);
 
@@ -257,25 +259,45 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         return;
                     }
 
-                    // 💥 [기믹 3 & 4 결합 단도리] 내 아군 선제 속성 공격 계산 스케일링 수식 연산 가동
                     String mySkill = getSkillName(activePokeName);
                     double myMultiplier = getMatchupMultiplier(activePokeName, battle.getEnemyName());
 
-                    // 레벨 비례형 스케일링 기본 타격 대미지 공식: (레벨 * 2) + random(4~8)
-                    int baseMyDmg = (myActivePoke.getLevel() * 2) + (random.nextInt(5) + 4);
-                    int finalMyDmg = (int) Math.round(baseMyDmg * myMultiplier);
+                    // 💥 [내 공격 연산]: 전설(20% 확률 200딜) 및 미스틱(2% 확률 100딜) 주사위 연산 확장
+                    int finalMyDmg;
+                    int myCritType = 0; // 0: 노크리티컬, 1: 미스틱크리티컬, 2: 전설크리티컬
+
+                    if (isLegendaryOrEpic(activePokeName) && random.nextInt(100) < 20) {
+                        finalMyDmg = 200;
+                        myCritType = 2;
+                    } else if (isMystic(activePokeName) && random.nextInt(100) < 2) {
+                        finalMyDmg = 100; // 2% 로또 고정 100 대미지!
+                        myCritType = 1;
+                    } else {
+                        int baseMyDmg = (myActivePoke.getLevel() * 2) + (random.nextInt(5) + 4);
+                        // ✨ 미스틱 등급 아군 평타 시 상시 +3 가중치 주입
+                        if (isMystic(activePokeName)) {
+                            baseMyDmg += 3;
+                        }
+                        finalMyDmg = (int) Math.round(baseMyDmg * myMultiplier);
+                    }
 
                     battle.setEnemyCurrentHp(Math.max(0, battle.getEnemyCurrentHp() - finalMyDmg));
                     res.put("enemyHp", battle.getEnemyCurrentHp());
                     res.put("myPokemonName", activePokeName);
 
-                    // 🏆 [야생 포켓몬 격파 -> 경험치 및 레벨업 정산 시퀀스]
+                    // 🏆 [야생 포켓몬 격파 정산]
                     if (battle.getEnemyCurrentHp() <= 0) {
                         StringBuilder logBuilder = new StringBuilder();
-                        logBuilder.append("💥 ").append(activePokeName).append("의 [").append(mySkill).append("] 공격! (").append(finalMyDmg).append(" 데미지!) ");
-                        if (myMultiplier > 1.1) logBuilder.append("✨ 효과가 굉장했다!\n\n");
-                        else if (myMultiplier < 0.9) logBuilder.append("💨 효과가 별로인 듯하다...\n\n");
-                        else logBuilder.append("\n\n");
+                        if (myCritType == 2) {
+                            logBuilder.append("⚡⚡ [💥전설의 궁극기 폭발!!!] 나의 ").append(activePokeName).append("(이)가 신화 속 광선을 뿜어냈습니다! (💥고정 200 데미지!)\n\n");
+                        } else if (myCritType == 1) {
+                            logBuilder.append("🔥✨ [💎미스틱 에이스 크리티컬!!!] 나의 ").append(activePokeName).append("의 잠재된 진화 에너지가 폭발했습니다! (💥고정 100 데미지!)\n\n");
+                        } else {
+                            logBuilder.append("💥 ").append(activePokeName).append("의 [").append(mySkill).append("] 공격! (").append(finalMyDmg).append(" 데미지!) ");
+                            if (myMultiplier > 1.1) logBuilder.append("✨ 효과가 굉장했다!\n\n");
+                            else if (myMultiplier < 0.9) logBuilder.append("💨 효과가 별로인 듯하다...\n\n");
+                            else logBuilder.append("\n\n");
+                        }
 
                         logBuilder.append("🎉 야생의 ").append(battle.getEnemyName()).append("이(가) 쓰러졌다!\n");
 
@@ -287,13 +309,13 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         boolean leveledUp = false;
 
                         while (myActivePoke.getExp() >= neededExp) {
-                            myActivePoke.setExp(myActivePoke.getExp() - neededExp); // 요구치 차감
-                            myActivePoke.setLevel(myActivePoke.getLevel() + 1);    // 레벨 1 상승
-                            myActivePoke.setMaxHp(myActivePoke.getMaxHp() + 3);     // 최대 체력 +3 보상
-                            myActivePoke.setCurrentHp(myActivePoke.getMaxHp());     // 보너스로 체력 전원 완치!
+                            myActivePoke.setExp(myActivePoke.getExp() - neededExp);
+                            myActivePoke.setLevel(myActivePoke.getLevel() + 1);
+                            myActivePoke.setMaxHp(myActivePoke.getMaxHp() + 3);
+                            myActivePoke.setCurrentHp(myActivePoke.getMaxHp());
 
                             leveledUp = true;
-                            neededExp = myActivePoke.getLevel() * 20; // 다음 레벨 요구치 갱신
+                            neededExp = myActivePoke.getLevel() * 20;
                         }
 
                         if (leveledUp) {
@@ -316,21 +338,33 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         bagResponse.put("list", myPokes);
                         session.sendMessage(new TextMessage(objectMapper.writeValueAsString(bagResponse)));
                     }
-                    // 🔄 야생 포켓몬 반격 타임 (스케일링 및 전설 보스 가중 타격 주입)
+                    // 🔄 야생 포켓몬 반격 타임 (🚨 적 미스틱 2% 확률 100 고정 필살기 적용)
                     else {
                         String enemySkill = getSkillName(battle.getEnemyName());
                         double enemyMultiplier = getMatchupMultiplier(battle.getEnemyName(), activePokeName);
 
-                        // 레벨 기반 적 타격 공식: (적레벨 * 2) + random(1~3)
-                        int baseEnemyDmg = (battle.getEnemyLevel() * 2) + (random.nextInt(3) + 1);
-
-                        // 👑 초전설 보스급 포켓몬 반격시 추가 파괴력 보정 보너스 가중치(+5 데미지 추가!)
+                        int finalEnemyDmg;
+                        int enemyCritType = 0; // 0: 노크리티컬, 1: 미스틱크리티컬, 2: 전설크리티컬
                         String checkEnemy = battle.getEnemyName().trim();
-                        if ("뮤츠".equals(checkEnemy) || "루기아".equals(checkEnemy) || "칠색조".equals(checkEnemy)) {
-                            baseEnemyDmg += 5;
+
+                        if (isLegendaryOrEpic(checkEnemy) && random.nextInt(100) < 20) {
+                            finalEnemyDmg = 200;
+                            enemyCritType = 2;
+                        } else if (isMystic(checkEnemy) && random.nextInt(100) < 2) {
+                            finalEnemyDmg = 100; // 적 미스틱 야생몹도 2% 확률로 100딜 크리티컬!
+                            enemyCritType = 1;
+                        } else {
+                            int baseEnemyDmg = (battle.getEnemyLevel() * 2) + (random.nextInt(3) + 1);
+                            if (isLegendaryOrEpic(checkEnemy)) {
+                                baseEnemyDmg += 5;
+                            }
+                            // ✨ 적 미스틱 야생몹 평타 시 상시 +2 보너스 데미지 가산
+                            if (isMystic(checkEnemy)) {
+                                baseEnemyDmg += 2;
+                            }
+                            finalEnemyDmg = (int) Math.round(baseEnemyDmg * enemyMultiplier);
                         }
 
-                        int finalEnemyDmg = (int) Math.round(baseEnemyDmg * enemyMultiplier);
                         int nextMyHp = Math.max(0, myActivePoke.getCurrentHp() - finalEnemyDmg);
 
                         myActivePoke.setCurrentHp(nextMyHp);
@@ -340,14 +374,26 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         res.put("myPokemonMaxHp", myActivePoke.getMaxHp());
 
                         StringBuilder roundLog = new StringBuilder();
-                        roundLog.append("💥 ").append(activePokeName).append("의 [").append(mySkill).append("]! (").append(finalMyDmg).append(" 데미지!) ");
-                        if (myMultiplier > 1.1) roundLog.append("✨ 효과가 굉장했다!\n");
-                        else if (myMultiplier < 0.9) roundLog.append("💨 효과가 별로인 듯하다...\n");
-                        else roundLog.append("\n");
+                        if (myCritType == 2) {
+                            roundLog.append("⚡⚡ [💥전설의 궁극기 폭발!!!] 나의 ").append(activePokeName).append("(이)가 신화 속 광선을 뿜어냈습니다! (💥고정 200 데미지!)\n");
+                        } else if (myCritType == 1) {
+                            roundLog.append("🔥✨ [💎미스틱 에이스 크리티컬!!!] 나의 ").append(activePokeName).append("의 진화 무기가 적을 관통했습니다! (💥고정 100 데미지!)\n");
+                        } else {
+                            roundLog.append("💥 ").append(activePokeName).append("의 [").append(mySkill).append("]! (").append(finalMyDmg).append(" 데미지!) ");
+                            if (myMultiplier > 1.1) roundLog.append("✨ 효과가 굉장했다!\n");
+                            else if (myMultiplier < 0.9) roundLog.append("💨 효과가 별로인 듯하다...\n");
+                            else roundLog.append("\n");
+                        }
 
-                        roundLog.append("🏃‍♂️ 야생의 ").append(battle.getEnemyName()).append("의 [").append(enemySkill).append("] 반격! (").append(finalEnemyDmg).append(" 피해!) ");
-                        if (enemyMultiplier > 1.1) roundLog.append("🔥 효과가 굉장했다!");
-                        else if (enemyMultiplier < 0.9) roundLog.append("🍃 효과가 별로인 듯하다...");
+                        if (enemyCritType == 2) {
+                            roundLog.append("⚡⚡ [🚨🚨 경고 - 신의 격노!!!] 야생의 ").append(battle.getEnemyName()).append("(이)가 붉은 안광을 빛내며 필살기를 작렬했습니다! (💥고정 200 피해!)");
+                        } else if (enemyCritType == 1) {
+                            roundLog.append("🔥✨ [🚨 미스틱 카운터 발생!] 야생의 에이스 ").append(battle.getEnemyName()).append("(이)가 무서운 기세로 치명타를 내질렀습니다! (💥고정 100 피해!)");
+                        } else {
+                            roundLog.append("🏃‍♂️ 야생의 ").append(battle.getEnemyName()).append("의 [").append(enemySkill).append("] 반격! (").append(finalEnemyDmg).append(" 피해!) ");
+                            if (enemyMultiplier > 1.1) roundLog.append("🔥 효과가 굉장했다!");
+                            else if (enemyMultiplier < 0.9) roundLog.append("🍃 효과가 별로인 듯하다...");
+                        }
 
                         if (nextMyHp <= 0) {
                             boolean hasAlivePokemon = false;
@@ -369,10 +415,12 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                                 activeBattles.remove(username);
 
                                 authService.updatePlayerPosition(username, 240, 160, "town");
+
                                 for (CapturedPokemon poke : myPokes) {
                                     poke.setCurrentHp(poke.getMaxHp());
-                                    capturedPokemonRepository.saveAndFlush(poke);
                                 }
+                                capturedPokemonRepository.saveAllAndFlush(myPokes);
+
                                 sendBroadcastUpdate(username, 240, 160, "town");
                             }
                         } else {
@@ -384,7 +432,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
             }
 
-            // ⚔️ [PvP 신설 수신부 1]: 타 플레이어 결투 신청 패킷 접수처
+            // ⚔️ [PvP 신설 수신부 1]
             else if ("PVP_INVITE".equals(type)) {
                 if (username == null) return;
                 String targetUserId = (String) requestData.get("targetUserId");
@@ -402,7 +450,8 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         activeBattles.containsKey(username) || userToRoomMap.containsKey(username) ||
                         activeBattles.containsKey(targetUserId) || userToRoomMap.containsKey(targetUserId)) {
 
-                    res.put("type", "CHAT_MESSAGE"); res.put("id", "🔔 [시스템]");
+                    res.put("type", "CHAT_MESSAGE");
+                    res.put("id", "🔔 [시스템]");
                     res.put("msg", "상대방이 오프라인이거나 현재 다른 전투 중이라 신청을 보낼 수 없습니다.");
                     session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
                     return;
@@ -420,12 +469,13 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 inviteForward.put("roomId", roomId);
                 targetSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(inviteForward)));
 
-                res.put("type", "CHAT_MESSAGE"); res.put("id", "⚔️ [PvP]");
+                res.put("type", "CHAT_MESSAGE");
+                res.put("id", "⚔️ [PvP]");
                 res.put("msg", "[" + targetUserId + "] 트레이너에게 결투를 신청했습니다. 상대의 응답을 대기합니다.");
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
             }
 
-            // ⚔️ [PvP 신설 수신부 2]: 초대 받은 유저의 수락(ACCEPT) / 거절(REJECT) 정산 통로
+            // ⚔️ [PvP 신설 수신부 2]
             else if ("PVP_RESPONSE".equals(type)) {
                 if (username == null) return;
                 String roomId = (String) requestData.get("roomId");
@@ -435,7 +485,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 if (pvp == null) return;
 
                 if ("ACCEPT".equals(action)) {
-                    // 방 상태는 매칭 완료(WAITING)인 채로 유지하고, 양측 브라우저에 가방을 열어 선발을 고르라고 명령 사출!
                     Map<String, Object> selectCmd = new HashMap<>();
                     selectCmd.put("type", "PVP_INVITE_ACCEPTED_CHOOSE_STARTER");
                     selectCmd.put("roomId", roomId);
@@ -443,20 +492,22 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                     pvp.getP1Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(selectCmd)));
                     pvp.getP2Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(selectCmd)));
                     System.out.println("⚔️ [PvP 매칭 수락] 양측 트레이너 선발 포켓몬 지목 페이즈 진입: " + roomId);
-                }
-                else if ("REJECT".equals(action)) {
+                } else if ("REJECT".equals(action)) {
                     Map<String, Object> rejectPacket = new HashMap<>();
-                    rejectPacket.put("type", "CHAT_MESSAGE"); rejectPacket.put("id", "⚔️ [PvP]");
+                    rejectPacket.put("type", "CHAT_MESSAGE");
+                    rejectPacket.put("id", "⚔️ [PvP]");
                     rejectPacket.put("msg", "[" + username + "] 트레이너가 도전을 거절했습니다.");
 
-                    if (pvp.getP1Session().isOpen()) pvp.getP1Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(rejectPacket)));
+                    if (pvp.getP1Session().isOpen())
+                        pvp.getP1Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(rejectPacket)));
 
-                    userToRoomMap.remove(pvp.getP1Username()); userToRoomMap.remove(pvp.getP2Username());
+                    userToRoomMap.remove(pvp.getP1Username());
+                    userToRoomMap.remove(pvp.getP2Username());
                     activePvPMatches.remove(roomId);
                 }
             }
 
-            // 🔄 [J] 전투 커맨드: 출전 포켓몬 실시간 스위칭 (🚨 PvP 상황 시 교체 락 가드 반영)
+            // 🔄 [J] 전투 커맨드: 출전 포켓몬 실시간 스위칭
             else if ("BATTLE_SWITCH".equals(type)) {
                 if (username == null) return;
 
@@ -505,6 +556,8 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                         myPokes.set(0, targetPoke);
                         myPokes.set(targetIndex, currentActivePoke);
 
+                        battle.setPlayerActivePokemonUniqueId(targetPoke.getUniqueId());
+
                         if (currentActivePoke.getCurrentHp() <= 0) {
                             res.put("myPokemonName", newName);
                             res.put("myPokemonHp", targetPoke.getCurrentHp());
@@ -542,7 +595,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 }
             }
 
-            // 🔴 [E] 몬스터볼 포획 (🚨 2. 가방 상한 제한선 딱 6마리 하드락 패치 장착 완료)
+            // 🔴 [E] 몬스터볼 포획
             else if ("BATTLE_CATCH".equals(type)) {
                 if (username == null || !activeBattles.containsKey(username)) return;
                 BattleState battle = activeBattles.get(username);
@@ -551,20 +604,30 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 res.put("type", "BATTLE_ROUND_RESULT");
                 res.put("enemyHp", battle.getEnemyCurrentHp());
 
-                // 📦 [기믹 2 적용] 소지 한도 6마리 스크리닝 가드 검사
                 java.util.List<CapturedPokemon> existingBag = capturedPokemonRepository.findByOwnerId(username);
                 if (existingBag.size() >= 6) {
-                    res.put("log", "🔴 몬스터볼을 힘차게 던졌으나... 앗!\n📦 트레이너가 소지할 수 있는 가방 한도(6마리)가 가득 차서 넘쳐흐릅니다!\n포획된 포켓몬은 더 이상 들어가지 못하고 수풀 속으로 슬피 도망쳐 버렸습니다. (우측 가방 탭에서 방생을 통해 자리를 비우세요.)");
+                    res.put("log", "🔴 몬스터볼을 던졌으나... 가방 한도(6마리)가 가득 찼습니다!\n📦 포획한 포켓몬은 수풀 속으로 도망쳐 버렸습니다.");
                     res.put("battleEnded", true);
                     activeBattles.remove(username);
                     session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
                     return;
                 }
 
-                double hpRatio = (double) battle.getEnemyCurrentHp() / battle.getEnemyMaxHp();
-                double catchChance = 0.30 + (0.50 * (1.0 - hpRatio));
+                String enemyName = battle.getEnemyName().trim();
+                double baseCatchRate = 0.40;
 
-                if (random.nextDouble() < catchChance) {
+                if ("이상해씨".equals(enemyName) || "파이리".equals(enemyName) || "꼬부기".equals(enemyName) ||
+                        "피카츄".equals(enemyName) || "망나뇽".equals(enemyName) || "마기라스".equals(enemyName)) {
+                    baseCatchRate = 0.25;
+                }
+                else if (isLegendaryOrEpic(enemyName)) {
+                    baseCatchRate = 0.04;
+                }
+
+                double hpRatio = (double) battle.getEnemyCurrentHp() / battle.getEnemyMaxHp();
+                double finalCatchChance = baseCatchRate * (1.0 + (1.5 * (1.0 - hpRatio)));
+
+                if (random.nextDouble() < finalCatchChance) {
                     CapturedPokemon cp = new CapturedPokemon();
                     cp.setOwnerId(username);
                     cp.setPokemonName(battle.getEnemyName());
@@ -573,11 +636,15 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                     cp.setCurrentHp(battle.getEnemyMaxHp());
                     capturedPokemonRepository.saveAndFlush(cp);
 
-                    res.put("log", "🔴 몬스터볼을 던졌다! 대굴.. 대굴.. 탁!\n\n🎉 성공! 야생의 " + battle.getEnemyName() + "을(를) 안전하게 붙잡았습니다!");
+                    res.put("log", "🔴 몬스터볼을 던졌다! 대굴.. 대굴.. 탁!\n\n🎉 대성공! 무시무시한 난이도를 뚫고 [" + battle.getEnemyName() + "]을(를) 포획했습니다!");
                     res.put("battleEnded", true);
                     activeBattles.remove(username);
                 } else {
-                    res.put("log", "🔴 몬스터볼을 던졌다! 아깝다! 포켓몬이 탈출해서 길길이 날뛰고 있습니다!");
+                    if (isLegendaryOrEpic(enemyName)) {
+                        res.put("log", "🔴 몬스터볼을 던졌다! ...쿠구궁!\n⚡ 전설의 포켓몬 [" + battle.getEnemyName() + "](이)가 압도적인 포스로 몬스터볼을 박살내며 탈출했습니다! (체력을 더 깎아야 합니다!)");
+                    } else {
+                        res.put("log", "🔴 몬스터볼을 던졌다! 아깝다! 포켓몬이 격렬하게 요동치며 탈출했습니다!");
+                    }
                     res.put("battleEnded", false);
                 }
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(res)));
@@ -646,8 +713,8 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 if (!myPokemons.isEmpty()) {
                     for (CapturedPokemon poke : myPokemons) {
                         poke.setCurrentHp(poke.getMaxHp());
-                        capturedPokemonRepository.saveAndFlush(poke);
                     }
+                    capturedPokemonRepository.saveAllAndFlush(myPokemons);
 
                     activeBattles.remove(username);
 
@@ -665,7 +732,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 }
             }
 
-            // 🍂 [파이널 신설 1]: 가방 한도 해제를 위한 개별 포켓몬 영구 방생 처리 인터셉터
+            // 🍂 [파이널 신설 1]
             else if ("RELEASE_POKEMON".equals(type)) {
                 if (username == null) return;
                 long targetUniqueId = ((Number) requestData.get("pokemonId")).longValue();
@@ -674,7 +741,8 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
                 if (myPokes.size() <= 1) {
                     Map<String, Object> errRes = new HashMap<>();
-                    errRes.put("type", "CHAT_MESSAGE"); errRes.put("id", "🔔 [시스템]");
+                    errRes.put("type", "CHAT_MESSAGE");
+                    errRes.put("id", "🔔 [시스템]");
                     errRes.put("msg", "❌ 최후에 남은 한 마리의 포켓몬 파트너는 자연으로 방생할 수 없습니다!");
                     session.sendMessage(new TextMessage(objectMapper.writeValueAsString(errRes)));
                     return;
@@ -690,12 +758,13 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(bagResponse)));
 
                 Map<String, Object> chatRes = new HashMap<>();
-                chatRes.put("type", "CHAT_MESSAGE"); chatRes.put("id", "🍂 [방생]");
+                chatRes.put("type", "CHAT_MESSAGE");
+                chatRes.put("id", "🍂 [방생]");
                 chatRes.put("msg", "포켓몬을 드넓은 푸른 대자연의 서식지로 해방시켰습니다.");
                 session.sendMessage(new TextMessage(objectMapper.writeValueAsString(chatRes)));
             }
 
-            // 🥊 [파이널 신설 2]: 유저가 조우 스크린에서 선발 출전 투수를 확정 지었을 때 정식 배틀 소환 개막
+            // 🥊 [파이널 신설 2]
             else if ("BATTLE_START_CONFIRM".equals(type)) {
                 if (username == null) return;
                 long selectedUniqueId = ((Number) requestData.get("pokemonId")).longValue();
@@ -714,37 +783,34 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
                 if (chosenPoke == null || chosenPoke.getCurrentHp() <= 0) {
                     Map<String, Object> errRes = new HashMap<>();
-                    errRes.put("type", "CHAT_MESSAGE"); errRes.put("id", "🔔 [시스템]");
+                    errRes.put("type", "CHAT_MESSAGE");
+                    errRes.put("id", "🔔 [시스템]");
                     errRes.put("msg", "❌ 기절해 쓰러진 포켓몬은 선발 진형에 세울 수 없습니다! 건강한 포켓몬을 고르세요.");
                     session.sendMessage(new TextMessage(objectMapper.writeValueAsString(errRes)));
                     return;
                 }
 
-                // 1선(가방 0번째)으로 스왑 정렬
                 if (chosenIndex > 0) {
                     CapturedPokemon temp = myPokes.get(0);
                     myPokes.set(0, chosenPoke);
                     myPokes.set(chosenIndex, temp);
                 }
 
-                // ⚔️ 케이스 A: 만약 이 유저가 현재 'PvP 방'에 소속되어 있다면?
                 if (userToRoomMap.containsKey(username)) {
                     String roomId = userToRoomMap.get(username);
                     PvPState pvp = activePvPMatches.get(roomId);
                     if (pvp != null) {
-                        // 누가 확정했냐에 따라 포켓몬 데이터 안착
                         if (username.equals(pvp.getP1Username())) pvp.setP1ActivePoke(chosenPoke);
                         if (username.equals(pvp.getP2Username())) pvp.setP2ActivePoke(chosenPoke);
 
-                        // 📡 양쪽 다 포켓몬 선택을 완료했다면 비로소 전장 동시 개막!!
                         if (pvp.getP1ActivePoke() != null && pvp.getP2ActivePoke() != null) {
-                            pvp.setStatus("BATTLE"); // 룸 가동
+                            pvp.setStatus("BATTLE");
                             sendPvPStartPacket(pvp);
                             System.out.println("⚔️ [PvP 라운드 오픈] 두 트레이너 모두 선발 확정 완료. 전장 개방: " + roomId);
                         } else {
-                            // 한 명만 골랐다면 시스템 메시지로 안내
                             Map<String, Object> waitRes = new HashMap<>();
-                            waitRes.put("type", "CHAT_MESSAGE"); waitRes.put("id", "⚔️ [PvP]");
+                            waitRes.put("type", "CHAT_MESSAGE");
+                            waitRes.put("id", "⚔️ [PvP]");
                             waitRes.put("msg", "[" + username + "] 트레이너가 출전 준비를 마쳤습니다. 상대방을 대기 중...");
                             session.sendMessage(new TextMessage(objectMapper.writeValueAsString(waitRes)));
                         }
@@ -752,7 +818,6 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                     return;
                 }
 
-                // 🌾 케이스 B: PvP가 아니라면 기존 야생 포켓몬 배틀 개막 처리
                 if (!activeBattles.containsKey(username)) return;
                 BattleState battle = activeBattles.get(username);
                 battle.setPlayerActivePokemonUniqueId(chosenPoke.getUniqueId());
@@ -787,13 +852,17 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 PvPState pvp = activePvPMatches.get(roomId);
                 if (pvp != null) {
                     Map<String, Object> esc = new HashMap<>();
-                    esc.put("type", "BATTLE_ROUND_RESULT"); esc.put("battleEnded", true);
+                    esc.put("type", "BATTLE_ROUND_RESULT");
+                    esc.put("battleEnded", true);
                     esc.put("log", "🏳️ 상대 트레이너가 겁을 먹고 서버에서 이탈했습니다! 당신의 부전승!");
 
-                    if (username.equals(pvp.getP1Username()) && pvp.getP2Session().isOpen()) pvp.getP2Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(esc)));
-                    else if (username.equals(pvp.getP2Username()) && pvp.getP1Session().isOpen()) pvp.getP1Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(esc)));
+                    if (username.equals(pvp.getP1Username()) && pvp.getP2Session().isOpen())
+                        pvp.getP2Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(esc)));
+                    else if (username.equals(pvp.getP2Username()) && pvp.getP1Session().isOpen())
+                        pvp.getP1Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(esc)));
 
-                    userToRoomMap.remove(pvp.getP1Username()); userToRoomMap.remove(pvp.getP2Username());
+                    userToRoomMap.remove(pvp.getP1Username());
+                    userToRoomMap.remove(pvp.getP2Username());
                     activePvPMatches.remove(roomId);
                 }
             }
@@ -830,7 +899,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     }
 
     // =========================================================================
-    // ⚔️ [PvP 내부 연산 코어]: 멀티플레이어 실시간 동시성 턴제 정산 핵심 로직스
+    // ⚔️ [PvP 내부 연산 코어] (🚨 PvP 연산 시에도 미스틱 크리티컬 2% 동등 적용 완료)
     // =========================================================================
     private void sendPvPStartPacket(PvPState pvp) throws Exception {
         Map<String, Object> p1Packet = new HashMap<>();
@@ -866,83 +935,166 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private void checkAndExecutePvPTurn(PvPState pvp) throws Exception {
         if (pvp.getP1Action() == null || pvp.getP2Action() == null) return;
 
-        Map<String, Object> p1Res = new HashMap<>(); p1Res.put("type", "BATTLE_ROUND_RESULT");
-        Map<String, Object> p2Res = new HashMap<>(); p2Res.put("type", "BATTLE_ROUND_RESULT");
+        Map<String, Object> p1Res = new HashMap<>();
+        p1Res.put("type", "BATTLE_ROUND_RESULT");
+        Map<String, Object> p2Res = new HashMap<>();
+        p2Res.put("type", "BATTLE_ROUND_RESULT");
         StringBuilder p1Log = new StringBuilder("[Round " + pvp.getRound() + "]\n");
         StringBuilder p2Log = new StringBuilder("[Round " + pvp.getRound() + "]\n");
 
-        // 🏳️ 1. 기권/항복 유저 검수 분기
         if ("RUN".equals(pvp.getP1Action()) || "RUN".equals(pvp.getP2Action())) {
             if ("RUN".equals(pvp.getP1Action()) && "RUN".equals(pvp.getP2Action())) {
-                p1Log.append("🏳️ 양측 트레이너의 동시 기권으로 승부가 무효화되었습니다."); p2Log.append("🏳️ 양측 트레이너의 동시 기권으로 승부가 무효화되었습니다.");
+                p1Log.append("🏳️ 양측 트레이너의 동시 기권으로 승부가 무효화되었습니다.");
+                p2Log.append("🏳️ 양측 트레이너의 동시 기권으로 승부가 무효화되었습니다.");
             } else if ("RUN".equals(pvp.getP1Action())) {
-                p1Log.append("🏳️ 패배! 승부를 버리고 시합 도중 백기를 들었습니다."); p2Log.append("🏆 대승리! 상대 트레이너가 압박을 견디지 못하고 기권했습니다!");
+                p1Log.append("🏳️ 패배! 승부를 버리고 시합 도중 백기를 들었습니다.");
+                p2Log.append("🏆 대승리! 상대 트레이너가 압박을 견디지 못하고 기권했습니다!");
             } else {
-                p1Log.append("🏆 대승리! 상대 트레이너가 압박을 견디지 못하고 기권했습니다!"); p2Log.append("🏳️ 패배! 승부를 버리고 시합 도중 백기를 들었습니다.");
+                p1Log.append("🏆 대승리! 상대 트레이너가 압박을 견디지 못하고 기권했습니다!");
+                p2Log.append("🏳️ 패배! 승부를 버리고 시합 도중 백기를 들었습니다.");
             }
-            p1Res.put("battleEnded", true); p2Res.put("battleEnded", true);
-            p1Res.put("log", p1Log.toString()); p2Res.put("log", p2Log.toString());
+            p1Res.put("battleEnded", true);
+            p2Res.put("battleEnded", true);
+            p1Res.put("log", p1Log.toString());
+            p2Res.put("log", p2Log.toString());
             sendPvPResponseAndClose(pvp, p1Res, p2Res);
             return;
         }
 
-        // ⚔️ 2. 리얼타임 PvP 동시 공방 난수 연산 (🚨 3 & 4 기믹 주입 수식 정산 가동)
-        String p1Skill = getSkillName(pvp.getP1ActivePoke().getPokemonName());
-        String p2Skill = getSkillName(pvp.getP2ActivePoke().getPokemonName());
+        String p1PokeName = pvp.getP1ActivePoke().getPokemonName().trim();
+        String p2PokeName = pvp.getP2ActivePoke().getPokemonName().trim();
 
-        double p1ToP2Multiplier = getMatchupMultiplier(pvp.getP1ActivePoke().getPokemonName(), pvp.getP2ActivePoke().getPokemonName());
-        double p2ToP1Multiplier = getMatchupMultiplier(pvp.getP2ActivePoke().getPokemonName(), pvp.getP1ActivePoke().getPokemonName());
+        String p1Skill = getSkillName(p1PokeName);
+        String p2Skill = getSkillName(p2PokeName);
 
-        // 양측 레벨에 따른 스케일링 데미지 공식 동등 적용
-        int baseP1Dmg = (pvp.getP1ActivePoke().getLevel() * 2) + (random.nextInt(5) + 4);
-        int finalP1Dmg = (int) Math.round(baseP1Dmg * p1ToP2Multiplier);
+        double p1ToP2Multiplier = getMatchupMultiplier(p1PokeName, p2PokeName);
+        double p2ToP1Multiplier = getMatchupMultiplier(p2PokeName, p1PokeName);
 
-        int baseP2Dmg = (pvp.getP2ActivePoke().getLevel() * 2) + (random.nextInt(5) + 4);
-        int finalP2Dmg = (int) Math.round(baseP2Dmg * p2ToP1Multiplier);
+        // 💥 [P1 공격 데미지 연산] 필살기 체크 (전설 20%, 미스틱 2%)
+        int finalP1Dmg;
+        int p1CritType = 0; // 0: 일반, 1: 미스틱, 2: 전설
+        if (isLegendaryOrEpic(p1PokeName) && random.nextInt(100) < 20) {
+            finalP1Dmg = 200;
+            p1CritType = 2;
+        } else if (isMystic(p1PokeName) && random.nextInt(100) < 2) {
+            finalP1Dmg = 100;
+            p1CritType = 1;
+        } else {
+            int baseP1Dmg = (pvp.getP1ActivePoke().getLevel() * 2) + (random.nextInt(5) + 4);
+            if (isMystic(p1PokeName)) baseP1Dmg += 3;
+            finalP1Dmg = (int) Math.round(baseP1Dmg * p1ToP2Multiplier);
+        }
+
+        // 💥 [P2 공격 데미지 연산] 필살기 체크 (전설 20%, 미스틱 2%)
+        int finalP2Dmg;
+        int p2CritType = 0; // 0: 일반, 1: 미스틱, 2: 전설
+        if (isLegendaryOrEpic(p2PokeName) && random.nextInt(100) < 20) {
+            finalP2Dmg = 200;
+            p2CritType = 2;
+        } else if (isMystic(p2PokeName) && random.nextInt(100) < 2) {
+            finalP2Dmg = 100;
+            p2CritType = 1;
+        } else {
+            int baseP2Dmg = (pvp.getP2ActivePoke().getLevel() * 2) + (random.nextInt(5) + 4);
+            if (isMystic(p2PokeName)) baseP2Dmg += 3;
+            finalP2Dmg = (int) Math.round(baseP2Dmg * p2ToP1Multiplier);
+        }
 
         boolean p1First = random.nextBoolean();
 
         if (p1First) {
             pvp.getP2ActivePoke().setCurrentHp(Math.max(0, pvp.getP2ActivePoke().getCurrentHp() - finalP1Dmg));
-            p1Log.append("⚔️ 나의 ").append(pvp.getP1ActivePoke().getPokemonName()).append("의 [").append(p1Skill).append("]! (").append(finalP1Dmg).append(" 피해!) ");
-            if (p1ToP2Multiplier > 1.1) p1Log.append("✨ 효과抜群!\n"); else if (p1ToP2Multiplier < 0.9) p1Log.append("💨 효과미흡..\n"); else p1Log.append("\n");
 
-            p2Log.append("💥 상대 ").append(pvp.getP1ActivePoke().getPokemonName()).append("의 [").append(p1Skill).append("] 습격! (-").append(finalP1Dmg).append(" HP)\n");
+            if (p1CritType == 2) {
+                p1Log.append("⚡⚡ [💥전설의 궁극기 폭발!!!] 나의 ").append(p1PokeName).append("의 궁극기 작렬! (💥고정 200 데미지!)\n");
+                p2Log.append("🚨🚨 [🚨신의 격노 습격!!!] 상대 전설몬 ").append(p1PokeName).append("의 필살기 피격! (-200 HP)\n");
+            } else if (p1CritType == 1) {
+                p1Log.append("🔥✨ [💎미스틱 에이스 크리티컬!!!] 나의 ").append(p1PokeName).append("의 잠재 에너지가 가동되었습니다! (💥고정 100 데미지!)\n");
+                p2Log.append("🔥✨ [🚨 미스틱 카운터 발생!] 상대 에이스 ").append(p1PokeName).append("의 뼈아픈 치명타 피격! (-100 HP)\n");
+            } else {
+                p1Log.append("⚔️ 나의 ").append(p1PokeName).append("의 [").append(p1Skill).append("]! (").append(finalP1Dmg).append(" 피해!) ");
+                if (p1ToP2Multiplier > 1.1) p1Log.append("✨ 효과抜群!\n");
+                else if (p1ToP2Multiplier < 0.9) p1Log.append("💨 효과미흡..\n");
+                else p1Log.append("\n");
+                p2Log.append("💥 상대 ").append(p1PokeName).append("의 [").append(p1Skill).append("] 습격! (-").append(finalP1Dmg).append(" HP)\n");
+            }
 
             if (pvp.getP2ActivePoke().getCurrentHp() > 0) {
                 pvp.getP1ActivePoke().setCurrentHp(Math.max(0, pvp.getP1ActivePoke().getCurrentHp() - finalP2Dmg));
-                p1Log.append("💥 상대 ").append(pvp.getP2ActivePoke().getPokemonName()).append("의 [").append(p2Skill).append("] 보복! (-").append(finalP2Dmg).append(" HP)\n");
 
-                p2Log.append("⚔️ 나의 ").append(pvp.getP2ActivePoke().getPokemonName()).append("의 [").append(p2Skill).append("] 반격! (").append(finalP2Dmg).append(" 피해!) ");
-                if (p2ToP1Multiplier > 1.1) p2Log.append("✨ 효과抜群!\n"); else if (p2ToP1Multiplier < 0.9) p2Log.append("💨 효과미흡..\n"); else p2Log.append("\n");
-            } else { p2Log.append("💀 포켓몬이 기절해 반격 불가!\n"); }
+                if (p2CritType == 2) {
+                    p1Log.append("🚨🚨 [🚨신의 격노 습격!!!] 상대 전설몬 ").append(p2PokeName).append("의 필살기 반격 피격! (-200 HP)\n");
+                    p2Log.append("⚡⚡ [💥전설의 궁극기 폭발!!!] 나의 ").append(p2PokeName).append("의 반격 궁극기 작렬! (💥고정 200 데미!)\n");
+                } else if (p2CritType == 1) {
+                    p1Log.append("🔥✨ [🚨 미스틱 카운터 발생!] 상대 에이스 ").append(p2PokeName).append("의 분노 섞인 반격 치명타! (-100 HP)\n");
+                    p2Log.append("🔥✨ [💎미스틱 에이스 크리티컬!!!] 나의 ").append(p2PokeName).append("의 반격 에너지가 정밀 타격되었습니다! (💥고정 100 데미지!)\n");
+                } else {
+                    p1Log.append("💥 상대 ").append(p2PokeName).append("의 [").append(p2Skill).append("] 보복! (-").append(finalP2Dmg).append(" HP)\n");
+                    p2Log.append("⚔️ 나의 ").append(p2PokeName).append("의 [").append(p2Skill).append("] 반격! (").append(finalP2Dmg).append(" 피해!) ");
+                    if (p2ToP1Multiplier > 1.1) p2Log.append("✨ 효과抜群!\n");
+                    else if (p2ToP1Multiplier < 0.9) p2Log.append("💨 효과미흡..\n");
+                    else p2Log.append("\n");
+                }
+            } else {
+                p1Log.append("🎉 상대 포켓몬을 처단하여 반격을 봉쇄했습니다!\n");
+                p2Log.append("💀 포켓몬이 눈을 감아 반격 불가!\n");
+            }
         } else {
             pvp.getP1ActivePoke().setCurrentHp(Math.max(0, pvp.getP1ActivePoke().getCurrentHp() - finalP2Dmg));
-            p1Log.append("💥 상대 ").append(pvp.getP2ActivePoke().getPokemonName()).append("의 [").append(p2Skill).append("] 습격! (-").append(finalP2Dmg).append(" HP)\n");
 
-            p2Log.append("⚔️ 나의 ").append(pvp.getP2ActivePoke().getPokemonName()).append("의 [").append(p2Skill).append("]! (").append(finalP2Dmg).append(" 피해!) ");
-            if (p2ToP1Multiplier > 1.1) p2Log.append("✨ 효과抜群!\n"); else if (p2ToP1Multiplier < 0.9) p2Log.append("💨 효과미흡..\n"); else p2Log.append("\n");
+            if (p2CritType == 2) {
+                p1Log.append("🚨🚨 [🚨신의 격노 기습!!!] 상대 전설몬 ").append(p2PokeName).append("의 필살기 선제 피격! (-200 HP)\n");
+                p2Log.append("⚡⚡ [💥전설의 궁극기 폭발!!!] 나의 ").append(p2PokeName).append("의 선제 궁극기 폭발! (💥고정 200 데미지!)\n");
+            } else if (p2CritType == 1) {
+                p1Log.append("🔥✨ [🚨 미스틱 카운터 발생!] 상대 에이스 ").append(p2PokeName).append("에게 기습 치명타 피격! (-100 HP)\n");
+                p2Log.append("🔥✨ [💎미스틱 에이스 크리티컬!!!] 나의 ").append(p2PokeName).append("의 선제 돌격 진화 치명타! (💥고정 100 데미지!)\n");
+            } else {
+                p1Log.append("💥 상대 ").append(p2PokeName).append("의 [").append(p2Skill).append("] 습격! (-").append(finalP2Dmg).append(" HP)\n");
+                p2Log.append("⚔️ 나의 ").append(p2PokeName).append("의 [").append(p2Skill).append("]! (").append(finalP2Dmg).append(" 피해!) ");
+                if (p2ToP1Multiplier > 1.1) p2Log.append("✨ 효과抜群!\n");
+                else if (p2ToP1Multiplier < 0.9) p2Log.append("💨 효과미흡..\n");
+                else p2Log.append("\n");
+            }
 
             if (pvp.getP1ActivePoke().getCurrentHp() > 0) {
                 pvp.getP2ActivePoke().setCurrentHp(Math.max(0, pvp.getP2ActivePoke().getCurrentHp() - finalP1Dmg));
-                p1Log.append("⚔️ 나의 ").append(pvp.getP1ActivePoke().getPokemonName()).append("의 [").append(p1Skill).append("] 반격! (").append(finalP1Dmg).append(" 피해!) ");
-                if (p1ToP2Multiplier > 1.1) p1Log.append("✨ 효과抜群!\n"); else if (p1ToP2Multiplier < 0.9) p1Log.append("💨 효과미흡..\n"); else p1Log.append("\n");
 
-                p2Log.append("💥 상대 ").append(pvp.getP1ActivePoke().getPokemonName()).append("의 [").append(p1Skill).append("] 보복! (-").append(finalP1Dmg).append(" HP)\n");
-            } else { p1Log.append("💀 포켓몬이 기절해 반격 불가!\n"); }
+                if (p1CritType == 2) {
+                    p1Log.append("⚡⚡ [💥전설의 궁극기 폭발!!!] 나의 ").append(p1PokeName).append("의 보복 궁극기 발사! (💥고정 200 데미지!)\n");
+                    p2Log.append("🚨🚨 [🚨신의 격노 습격!!!] 상대 전설몬 ").append(p1PokeName).append("의 보복 필살기 피격! (-200 HP)\n");
+                } else if (p1CritType == 1) {
+                    p1Log.append("🔥✨ [💎미스틱 에이스 크리티컬!!!] 나의 ").append(p1PokeName).append("의 분노 섞인 복수광선! (💥고정 100 데미지!)\n");
+                    p2Log.append("🔥✨ [🚨 미스틱 카운터 발생!] 상대 에이스 ").append(p1PokeName).append("의 보복형 치명타 타격! (-100 HP)\n");
+                } else {
+                    p1Log.append("⚔️ 나의 ").append(p1PokeName).append("의 [").append(p1Skill).append("] 반격! (").append(finalP1Dmg).append(" 피해!) ");
+                    if (p1ToP2Multiplier > 1.1) p1Log.append("✨ 효과抜群!\n");
+                    else if (p1ToP2Multiplier < 0.9) p1Log.append("💨 효과미흡..\n");
+                    else p1Log.append("\n");
+                    p2Log.append("💥 상대 ").append(p1PokeName).append("의 [").append(p1Skill).append("] 보복! (-").append(finalP1Dmg).append(" HP)\n");
+                }
+            } else {
+                p1Log.append("💀 내 포켓몬이 기절해 반격 불가!\n");
+                p2Log.append("🎉 선제 공격으로 상대의 반격을 완벽히 차단했습니다!\n");
+            }
         }
 
+        // JPA 영속성 반영
         capturedPokemonRepository.saveAndFlush(pvp.getP1ActivePoke());
         capturedPokemonRepository.saveAndFlush(pvp.getP2ActivePoke());
 
-        p1Res.put("myPokemonHp", pvp.getP1ActivePoke().getCurrentHp()); p1Res.put("myPokemonMaxHp", pvp.getP1ActivePoke().getMaxHp()); p1Res.put("enemyHp", pvp.getP2ActivePoke().getCurrentHp());
-        p2Res.put("myPokemonHp", pvp.getP2ActivePoke().getCurrentHp()); p2Res.put("myPokemonMaxHp", pvp.getP2ActivePoke().getMaxHp()); p2Res.put("enemyHp", pvp.getP1ActivePoke().getCurrentHp());
+        p1Res.put("myPokemonHp", pvp.getP1ActivePoke().getCurrentHp());
+        p1Res.put("myPokemonMaxHp", pvp.getP1ActivePoke().getMaxHp());
+        p1Res.put("enemyHp", pvp.getP2ActivePoke().getCurrentHp());
+        p2Res.put("myPokemonHp", pvp.getP2ActivePoke().getCurrentHp());
+        p2Res.put("myPokemonMaxHp", pvp.getP2ActivePoke().getMaxHp());
+        p2Res.put("enemyHp", pvp.getP1ActivePoke().getCurrentHp());
 
         boolean p1Fainted = pvp.getP1ActivePoke().getCurrentHp() <= 0;
         boolean p2Fainted = pvp.getP2ActivePoke().getCurrentHp() <= 0;
 
         if (p1Fainted || p2Fainted) {
-            p1Res.put("battleEnded", true); p2Res.put("battleEnded", true);
+            p1Res.put("battleEnded", true);
+            p2Res.put("battleEnded", true);
             if (p1Fainted && p2Fainted) {
                 p1Log.append("\n💀 무승부! 양측 포켓몬이 동시에 무너져 시합이 종결되었습니다.");
                 p2Log.append("\n💀 무승부! 양측 포켓몬이 동시에 무너져 시합이 종결되었습니다.");
@@ -953,13 +1105,19 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
                 p1Log.append("\n🏆 축하합니다! 상대를 완벽히 짓누르고 PvP 챔피언에 등극했습니다!");
                 p2Log.append("\n💀 내 포켓몬이 기절했습니다.. 대인전 PvP 패배.");
             }
-            p1Res.put("log", p1Log.toString()); p2Res.put("log", p2Log.toString());
+            p1Res.put("log", p1Log.toString());
+            p2Res.put("log", p2Log.toString());
             sendPvPResponseAndClose(pvp, p1Res, p2Res);
         } else {
-            p1Res.put("battleEnded", false); p2Res.put("battleEnded", false);
-            p1Log.append("\n 다음 명령을 대기합니다."); p2Log.append("\n 다음 명령을 입력하세요.");
-            p1Res.put("log", p1Log.toString()); p2Res.put("log", p2Log.toString());
-            pvp.setP1Action(null); pvp.setP2Action(null); pvp.setRound(pvp.getRound() + 1);
+            p1Res.put("battleEnded", false);
+            p2Res.put("battleEnded", false);
+            p1Log.append("\n 다음 명령을 대기합니다.");
+            p2Log.append("\n 다음 명령을 입력하세요.");
+            p1Res.put("log", p1Log.toString());
+            p2Res.put("log", p2Log.toString());
+            pvp.setP1Action(null);
+            pvp.setP2Action(null);
+            pvp.setRound(pvp.getRound() + 1);
 
             pvp.getP1Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(p1Res)));
             pvp.getP2Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(p2Res)));
@@ -969,52 +1127,90 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     private void sendPvPResponseAndClose(PvPState pvp, Map<String, Object> p1Res, Map<String, Object> p2Res) throws Exception {
         pvp.getP1Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(p1Res)));
         pvp.getP2Session().sendMessage(new TextMessage(objectMapper.writeValueAsString(p2Res)));
-        userToRoomMap.remove(pvp.getP1Username()); userToRoomMap.remove(pvp.getP2Username());
+        userToRoomMap.remove(pvp.getP1Username());
+        userToRoomMap.remove(pvp.getP2Username());
         activePvPMatches.remove(pvp.getRoomId());
         System.out.println("⚔️ [PvP 전장 종료] 세션 및 매칭 룸 정상 폐쇄 완수: " + pvp.getRoomId());
     }
 
     // =========================================================================
-    // 📊 [히든 유틸리티 서브 도킹 메소드] 시그니처 4대 속성 스킬 배정 및 상성 가중치 밸브
+    // 📊 [히든 유틸리티 서브 도킹 메소드]
     // =========================================================================
+
+    // 👑 [기믹 적용]: 프론트엔드와 싱크를 맞춘 미스틱 등급 판정 가드 필터 함수 추가
+    private boolean isMystic(String pokemonName) {
+        if (pokemonName == null) return false;
+        String name = pokemonName.trim();
+        return "미뇽".equals(name) || "잠만보".equals(name) || "켄타로스".equals(name) ||
+                "라프라스".equals(name) || "리자몽".equals(name) || "거북왕".equals(name) ||
+                "이상해꽃".equals(name) || "망나뇽".equals(name) || "마기라스".equals(name);
+    }
+
+    private boolean isLegendaryOrEpic(String pokemonName) {
+        if (pokemonName == null) return false;
+        String name = pokemonName.trim();
+        return "뮤츠".equals(name) || "루기아".equals(name) || "칠색조".equals(name) ||
+                "앤테이".equals(name) || "라이코".equals(name) || "스이쿤".equals(name) ||
+                "썬더".equals(name) || "뮤".equals(name) || "세레비".equals(name);
+    }
+
     private String getSkillName(String pokemonName) {
         String name = pokemonName.trim();
-        // 🔥 불꽃 속성
-        if ("파이리".equals(name) || "가디".equals(name) || "칠색조".equals(name)) return "화염방사";
-        // 💧 물 속성
-        if ("꼬부기".equals(name) || "발챙이".equals(name) || "라프라스".equals(name)) return "하이드로펌프";
-        // 🍃 풀 속성
-        if ("이상해씨".equals(name) || "뚜벅초".equals(name)) return "솔라빔";
-        // ⚡ 전기 속성
-        if ("피카츄".equals(name) || "피츄".equals(name) || "뮤츠".equals(name) || "루기아".equals(name)) return "10만볼트";
 
-        return "몸통박치기"; // 일반 속성 기본값
+        // 🔥 불꽃 타입 기술
+        if ("파이리".equals(name) || "리자몽".equals(name) || "가디".equals(name) ||
+                "브케인".equals(name) || "앤테이".equals(name) || "칠색조".equals(name)) {
+            return "화염방사";
+        }
+        // 💧 물 타입 기술
+        if ("꼬부기".equals(name) || "거북왕".equals(name) || "발챙이".equals(name) ||
+                "라프라스".equals(name) || "리아코".equals(name) || "스이쿤".equals(name)) {
+            return "하이드로펌프";
+        }
+        // 🍃 풀 타입 기술
+        if ("이상해씨".equals(name) || "이상해꽃".equals(name) || "뚜벅초".equals(name) ||
+                "치코리타".equals(name) || "세레비".equals(name)) {
+            return "솔라빔";
+        }
+        // ⚡ 전기 타입 기술
+        if ("피카츄".equals(name) || "피츄".equals(name) || "썬더".equals(name) ||
+                "라이코".equals(name) || "전룡".equals(name)) {
+            return "10만볼트";
+        }
+        // 🔮 에스퍼/에픽 타입 기술
+        if ("뮤츠".equals(name) || "뮤".equals(name) || "루기아".equals(name) ||
+                "망나뇽".equals(name) || "마기라스".equals(name)) {
+            return "파괴광선";
+        }
+
+        return "몸통박치기"; // 노말/기타 포켓몬 (구구, 꼬렛, 토게피 등)
     }
 
     private double getMatchupMultiplier(String attacker, String defender) {
-        String att = attacker.trim();
-        String def = defender.trim();
+        String attType = getPokemonType(attacker.trim());
+        String defType = getPokemonType(defender.trim());
 
-        String attType = getPokemonType(att);
-        String defType = getPokemonType(def);
-
-        // 상성 역학 테이블 공식: 물(WATER) -> 불(FIRE) -> 풀(GRASS) -> 물(WATER)
-        if ("WATER".equals(attType) && "FIRE".equals(defType)) return 1.5; // 효과가 굉장했다!
+        if ("WATER".equals(attType) && "FIRE".equals(defType)) return 1.5;
         if ("FIRE".equals(attType) && "GRASS".equals(defType)) return 1.5;
         if ("GRASS".equals(attType) && "WATER".equals(defType)) return 1.5;
 
-        if ("FIRE".equals(attType) && "WATER".equals(defType)) return 0.5; // 효과가 별로였다..
+        if ("FIRE".equals(attType) && "WATER".equals(defType)) return 0.5;
         if ("GRASS".equals(attType) && "FIRE".equals(defType)) return 0.5;
         if ("WATER".equals(attType) && "GRASS".equals(defType)) return 0.5;
 
-        return 1.0; // 무상성 1배 타격
+        return 1.0;
     }
 
     private String getPokemonType(String name) {
-        if ("파이리".equals(name) || "가디".equals(name) || "칠색조".equals(name)) return "FIRE";
-        if ("꼬부기".equals(name) || "발챙이".equals(name) || "라프라스".equals(name)) return "WATER";
-        if ("이상해씨".equals(name) || "뚜벅초".equals(name)) return "GRASS";
-        if ("피카츄".equals(name) || "피츄".equals(name)) return "ELECTRIC";
+        String n = name.trim();
+        if ("파이리".equals(n) || "리자몽".equals(n) || "가디".equals(n) || "브케인".equals(n) || "앤테이".equals(n) || "칠색조".equals(n))
+            return "FIRE";
+        if ("꼬부기".equals(n) || "거북왕".equals(n) || "발챙이".equals(n) || "라프라스".equals(n) || "리아코".equals(n) || "스이쿤".equals(n))
+            return "WATER";
+        if ("이상해씨".equals(n) || "이상해꽃".equals(n) || "뚜벅초".equals(n) || "치코리타".equals(n) || "세레비".equals(n))
+            return "GRASS";
+        if ("피카츄".equals(n) || "피츄".equals(n) || "썬더".equals(n) || "라이코".equals(n) || "전룡".equals(n)) return "ELECTRIC";
+        if ("뮤츠".equals(n) || "뮤".equals(n) || "루기아".equals(n) || "망나뇽".equals(n) || "마기라스".equals(n)) return "EPIC";
 
         return "NORMAL";
     }
