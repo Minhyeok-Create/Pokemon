@@ -19,7 +19,7 @@
 
 ### 1. 지능형 웹소켓 재연결 및 패킷 예약 시스템 설계
 * **Challenge:** 무료 배포 클라우드 인프라 특성상 최초 접속 시 서버가 깨어나는 데 고질적인 인프라 지연(Cold Start, 3~5분)이 발생했습니다. 이 기간 동안 유저가 가입/로그인을 시도하면 웹소켓 연결이 거부되어 데이터가 유실되고 UX가 심각하게 저해되는 문제가 있었습니다.
-* **Solution:** 클라이언트 `NetworkManager`에 `onclose` 센서를 활용한 **1.5초 주기 지능형 자동 재연결(Auto Reconnect) 로직**을 탑재하고, 소켓이 닫힌 상태에서 유저가 발생시킨 인증 패킷을 메모리 버퍼(`pendingRequest`)에 **예약 보관(Queueing)** 하도록 아키텍처를 개조했습니다.
+* **Solution:** 클라이언트 `NetworkManager`에 `onclose` 센서를 활용한 **1.5초 주기 자동 재연결(Auto Reconnect) 로직**을 탑재하고, 소켓이 닫힌 상태에서 유저가 발생시킨 인증 패킷을 메모리 버퍼(`pendingRequest`)에 **예약 보관(Queueing)** 하도록 아키텍처를 개조했습니다.
 * **Result:** 유저의 중복 조작을 원천 차단하고 핸드셰이크가 완료되는 타이밍을 인터셉트하여 예약 패킷을 자동 사출함으로써, 서버 가동과 동시에 **100% 자동으로 게임 세션 진입을 완료하는 UX**를 구축했습니다.
 
 <img width="969" height="776" alt="서버가동대기" src="https://github.com/user-attachments/assets/dcdd9084-ddad-43b6-bfbb-67745c4755a4" />
@@ -61,12 +61,12 @@
 * **Solution:** 고유 룸 계약 매커니즘(`roomId`)을 개설하여 방 점유율을 추적하고, 프론트엔드 단에서 마우스 조준 사격형 결투 신청 티켓 플로팅 UI 및 선택 비활성화(출격 대기 락) 시각 피드백을 주입했습니다. 또한, 사망 시 태초 마을 강제 이송 패킷 및 브라우저 강제 종료 시 남은 유저의 부전승 자동 스케줄러 세션을 빌드했습니다.
 * **Cross-Platform:** 모바일 브라우저 터치 패널 제어를 위한 가상 조이스틱 터치 이벤트 핸들러 연속 인터벌 모듈을 장착하여 기기 제한 없는 플레이가 가능합니다.
 
-| ⚔️ 1:1 트레이너 진검승부 PvP 아레나 | 📱 모바일 가상 조이스틱 및 크로스 플랫폼 |
+|  1:1 트레이너 진검승부 PvP 아레나 | 📱 모바일 가상 조이스틱 및 크로스 플랫폼 |
 | :---: | :---: |
 | <img width="1191" height="768" alt="pvp" src="https://github.com/user-attachments/assets/cbced514-0abf-4252-8ffa-2ee5b9dbb233" /> | <img width="530" height="722" alt="모바일" src="https://github.com/user-attachments/assets/5ef53385-03c9-4cac-bb86-91fc46f920e6" /> |
 
 <br>
 
-| 💀 전멸 및 태초마을 소환 시퀀스 |
+|  전멸 및 태초마을 소환 시퀀스 |
 | :---: |
 | <img width="496" height="691" alt="사망" src="https://github.com/user-attachments/assets/748ad5d1-4f46-4f3e-92b0-09ca579ccdce" /> |
