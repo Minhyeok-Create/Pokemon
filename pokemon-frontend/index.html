@@ -130,11 +130,19 @@
                 <button onclick="requestLogin()" class="btn-login">로그인</button>
                 <button onclick="requestSignup()" class="btn-signup">회원가입</button>
             </div>
+            <div id="server-loading-notice" style="display: none; margin-top: 15px; font-size: 11px; color: #ff5353; font-weight: bold; line-height: 1.4; background: rgba(0,0,0,0.4); padding: 8px; border-radius: 6px; border: 1px dashed #ff5353;">
+                📡 무료 배포 서버를 깨우는 중입니다 (30초~5분 소요)...<br>
+                잠시만 기다려주시면 로그인 혹은 회원가입이 진행됩니다!
+            </div>
         </div>
     </div>
 
     <div id="game-wrapper">
         <canvas id="myCanvas" width="400" height="400"></canvas>
+        <div id="map-signpost" style="width: 100%; max-width: 400px; background: #2c3e50; border: 2px solid #ffcb05; border-radius: 8px; padding: 6px; text-align: center; font-size: 11px; font-weight: bold; color: #ffcb05; box-sizing: border-box; margin-bottom: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.4);">
+            📍 현재 위치: <span id="current-map-label" style="color: #fff;">마을</span> 
+            <span id="next-map-arrow" style="margin-left: 8px; background: #1a252f; padding: 2px 6px; border-radius: 4px; color: #2ecc71;">➡️ 오른쪽 끝: 들판 진입</span>
+        </div>
         <div id="pvp-invite-ticket" style="display: none; position: absolute; background: #2c3e50; border: 2px solid #ffcb05; border-radius: 8px; padding: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 5000; align-items: center; gap: 6px;">
             <span id="target-player-label" style="font-size: 11px; font-weight: bold; color: #fff; padding: 0 4px;"></span>
             <button onclick="clickSendPvPInvite()" style="padding: 4px 8px; font-size: 11px; font-weight: bold; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; box-shadow: 0 2px 0 #c0392b;">⚔️ 배틀 신청</button>
@@ -183,6 +191,13 @@
         </div>
     </div>
 
+    <div id="starter-select-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 14000; justify-content: center; align-items: center; flex-direction: column;">
+            <div style="background: #1a252f; border: 3px solid #ffcb05; border-radius: 12px; padding: 20px; width: 300px; text-align: center; box-shadow: 0 0 20px rgba(255,203,5,0.3);">
+                <h3 style="margin-top:0; color:#ffcb05; font-size:16px;">🌾 야생 포켓몬과 조우했습니다!</h3>
+                <p style="color:#fff; font-size:12px; margin-bottom:15px;">전장에 선발로 출전시킬 포켓몬을 선택하세요.</p>
+                <div id="starter-pokemon-list-box" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; padding-right: 4px;"></div>
+            </div>
+        </div>
     <!-- ⚔️ [비주얼 대개조] 포켓몬 그래픽 대치 전장 레이아웃 완성 -->
     <div id="battle-container" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle, #2c3e50 0%, #0f171e 100%); color: white; flex-direction: column; align-items: center; justify-content: center; z-index: 10000; font-family: sans-serif; padding: 10px; box-sizing: border-box;">
         <div style="width: 100%; max-width: 380px; background: #1c262f; border: 4px solid #ffcb05; border-radius: 16px; padding: 15px; box-shadow: 0 0 35px rgba(255, 203, 5, 0.4); box-sizing: border-box;">
